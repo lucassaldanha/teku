@@ -22,19 +22,26 @@ public class BesuService extends Service {
 
   private static final Logger LOG = LogManager.getLogger();
 
+  // TODO-beku we can pass config objects via constructor
+  public BesuService() {}
+
   @Override
   @SuppressWarnings("UnnecessarilyFullyQualified")
   protected tech.pegasys.teku.infrastructure.async.SafeFuture<?> doStart() {
     LOG.info("TODO: Start Besu service");
 
-//    BesuController besuController = new BesuController.Builder()
-//            .fromEthNetworkConfig(EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET))
-//            .build();
-//
-//    Runner runner = new RunnerBuilder().besuController(besuController).build();
-//
-//    runner.startExternalServices();
-//    runner.startEthereumMainLoop();
+    // TODO-beku start besu
+
+    // Example of what we want to do here...
+
+    //        BesuController besuController = new BesuController.Builder()
+    //                .fromEthNetworkConfig(EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET))
+    //                .build();
+    //
+    //        Runner runner = new RunnerBuilder().besuController(besuController).build();
+    //
+    //        runner.startExternalServices();
+    //        runner.startEthereumMainLoop();
 
     return SafeFuture.COMPLETE;
   }
@@ -43,6 +50,9 @@ public class BesuService extends Service {
   @SuppressWarnings("UnnecessarilyFullyQualified")
   protected tech.pegasys.teku.infrastructure.async.SafeFuture<?> doStop() {
     LOG.info("TODO: STOP Besu service");
+
+    // TODO-beku stop besu
+
     return SafeFuture.COMPLETE;
   }
 }

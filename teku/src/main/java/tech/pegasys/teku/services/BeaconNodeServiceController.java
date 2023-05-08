@@ -30,6 +30,8 @@ public class BeaconNodeServiceController extends ServiceController {
 
   public BeaconNodeServiceController(
       TekuConfiguration tekuConfig, final ServiceConfig serviceConfig) {
+    // TODO-beku We need to think of what config we want here
+    services.add(new BesuService());
     // Note services will be started in the order they are added here.
     services.add(
         new StorageService(
@@ -56,8 +58,6 @@ public class BeaconNodeServiceController extends ServiceController {
     services.add(
         ValidatorClientService.create(
             serviceConfig, tekuConfig.validatorClient(), new DoppelgangerDetectionShutDown()));
-
-    services.add(new BesuService());
   }
 
   private Optional<PowchainService> powchainService(

@@ -149,9 +149,11 @@ dependencyManagement {
         // We include netty-all so omit the separated jars
         exclude 'io.netty:netty-tcnative-boringssl-static'
       }
+      entry('besu') {
+        exclude('com.splunk.logging:splunk-library-javalogging')
+      }
       entry('core')
       entry('config') {
-
         exclude('org.apache.logging.log4j:log4j-slf4j2-impl')
       }
     }
