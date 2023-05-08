@@ -151,6 +151,7 @@ dependencyManagement {
       }
       entry('core')
       entry('config')
+      entry('besu')
     }
     dependencySet(group: 'org.hyperledger.besu', version: '23.4.0') {
       entry('besu-datatypes')

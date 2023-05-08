@@ -68,4 +68,4 @@ include 'eth-tests'
 include 'eth-reference-tests'
 include 'eth-benchmark-tests'
 include 'fork-choice-tests'
-
+include 'execution-client'
