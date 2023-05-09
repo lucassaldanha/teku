@@ -152,6 +152,10 @@ dependencyManagement {
       entry('besu') {
         exclude('com.splunk.logging:splunk-library-javalogging')
       }
+      entry('eth')
+      entry('services')
+      entry('plugins-rocksdb')
+      entry('p2p')
       entry('core')
       entry('config') {
         exclude('org.apache.logging.log4j:log4j-slf4j2-impl')

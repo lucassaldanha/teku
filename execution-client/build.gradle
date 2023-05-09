@@ -19,6 +19,13 @@ dependencies {
   implementation project(':infrastructure:serviceutils')
 
   implementation 'org.hyperledger.besu.internal:besu'
+  implementation 'org.hyperledger.besu.internal:eth'
+  implementation 'org.hyperledger.besu.internal:core'
+  implementation 'org.hyperledger.besu.internal:metrics-core'
+  implementation 'org.hyperledger.besu.internal:services'
+  implementation 'org.hyperledger.besu.internal:plugins-rocksdb'
+  implementation 'org.hyperledger.besu.internal:p2p'
+  implementation 'org.hyperledger.besu:evm'
 
   implementation 'org.junit.jupiter:junit-jupiter-params'
 }
