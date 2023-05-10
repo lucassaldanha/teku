@@ -17,6 +17,7 @@ import static org.hyperledger.besu.cli.DefaultCommandValues.DEFAULT_KEY_VALUE_ST
 import static org.hyperledger.besu.cli.DefaultCommandValues.DEFAULT_SECURITY_MODULE;
 import static org.hyperledger.besu.cli.DefaultCommandValues.getDefaultBesuDataPath;
 import static org.hyperledger.besu.controller.BesuController.DATABASE_PATH;
+import static org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl.DEFAULT_LISTENING_PORT;
 
 import com.google.common.base.Suppliers;
 import io.vertx.core.Vertx;
@@ -102,7 +103,7 @@ public class BesuService extends Service {
     preparePlugins();
 
     final EthNetworkConfig ethNetworkConfig =
-        EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET);
+        EthNetworkConfig.getNetworkConfig(NetworkName.GOERLI);
 
     BesuController besuController =
         new BesuController.Builder()
@@ -137,6 +138,9 @@ public class BesuService extends Service {
             .vertx(Vertx.vertx())
             .storageProvider(keyValueStorageProvider(DEFAULT_KEY_VALUE_STORAGE_NAME))
             .p2pAdvertisedHost("127.0.0.1")
+            .p2pListenPort(DEFAULT_LISTENING_PORT)
+            .p2pEnabled(true)
+            .discovery(true)
             .dataDir(dataDir())
             .jsonRpcConfiguration(JsonRpcConfiguration.createDefault())
             .graphQLConfiguration(GraphQLConfiguration.createDefault())
@@ -181,7 +185,6 @@ public class BesuService extends Service {
     // register default security module
     securityModuleService.register(
         DEFAULT_SECURITY_MODULE, Suppliers.memoize(this::defaultSecurityModule));
-
   }
 
   private SecurityModule securityModule() {
