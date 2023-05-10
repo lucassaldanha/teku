@@ -19,13 +19,12 @@ import static org.hyperledger.besu.cli.DefaultCommandValues.getDefaultBesuDataPa
 import static org.hyperledger.besu.controller.BesuController.DATABASE_PATH;
 
 import com.google.common.base.Suppliers;
+import io.vertx.core.Vertx;
 import java.io.File;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Collections;
 import java.util.Optional;
-
-import io.vertx.core.Vertx;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.hyperledger.besu.Runner;
@@ -58,7 +57,6 @@ import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.PermissioningService;
-import org.hyperledger.besu.plugin.services.RpcEndpointService;
 import org.hyperledger.besu.plugin.services.SecurityModuleService;
 import org.hyperledger.besu.plugin.services.StorageService;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -103,14 +101,12 @@ public class BesuService extends Service {
 
     preparePlugins();
 
-    final EthNetworkConfig ethNetworkConfig = EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET);
+    final EthNetworkConfig ethNetworkConfig =
+        EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET);
 
     BesuController besuController =
         new BesuController.Builder()
-            .fromEthNetworkConfig(
-                ethNetworkConfig,
-                Collections.emptyMap(),
-                SyncMode.X_CHECKPOINT)
+            .fromEthNetworkConfig(ethNetworkConfig, Collections.emptyMap(), SyncMode.X_CHECKPOINT)
             .synchronizerConfiguration(new SynchronizerConfiguration.Builder().build())
             .ethProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
             .miningParameters(new MiningParameters.Builder().build())
@@ -127,7 +123,8 @@ public class BesuService extends Service {
             // .messagePermissioningProviders(permissioningService.getMessagePermissioningProviders())
             .build();
 
-    final JsonRpcConfiguration engineJsonRpcConfiguration = JsonRpcConfiguration.createEngineDefault();
+    final JsonRpcConfiguration engineJsonRpcConfiguration =
+        JsonRpcConfiguration.createEngineDefault();
     engineJsonRpcConfiguration.setEnabled(true);
     engineJsonRpcConfiguration.setAuthenticationEnabled(false);
 
@@ -150,7 +147,7 @@ public class BesuService extends Service {
             .besuPluginContext(besuPluginContext)
             .ethNetworkConfig(ethNetworkConfig)
             .rpcEndpointService(new RpcEndpointServiceImpl())
-        .build();
+            .build();
 
     runner.startExternalServices();
     runner.startEthereumMainLoop();
@@ -165,7 +162,7 @@ public class BesuService extends Service {
     //    besuPluginContext.addService(MetricCategoryRegistry.class, metricCategoryRegistry);
     besuPluginContext.addService(PermissioningService.class, permissioningService);
     //    besuPluginContext.addService(PrivacyPluginService.class, privacyPluginService);
-//    besuPluginContext.addService(RpcEndpointService.class, rpcEndpointServiceImpl);
+    //    besuPluginContext.addService(RpcEndpointService.class, rpcEndpointServiceImpl);
 
     // register built-in plugins
     bekuRocksDBPlugin = new BekuRocksDBPlugin();
