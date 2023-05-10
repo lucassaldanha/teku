@@ -149,7 +149,9 @@ public class BesuService extends Service {
             .rpcEndpointService(new RpcEndpointServiceImpl())
             .build();
 
+    besuPluginContext.beforeExternalServices();
     runner.startExternalServices();
+    besuPluginContext.startPlugins();
     runner.startEthereumMainLoop();
 
     return SafeFuture.COMPLETE;
@@ -179,6 +181,7 @@ public class BesuService extends Service {
     // register default security module
     securityModuleService.register(
         DEFAULT_SECURITY_MODULE, Suppliers.memoize(this::defaultSecurityModule));
+
   }
 
   private SecurityModule securityModule() {
