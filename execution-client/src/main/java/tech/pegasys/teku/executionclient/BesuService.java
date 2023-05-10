@@ -70,6 +70,7 @@ import org.hyperledger.besu.services.StorageServiceImpl;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.service.serviceutils.Service;
 
+// TODO-beku delay startup of teku until besu is ready?
 public class BesuService extends Service {
 
   private static final Logger LOG = LogManager.getLogger();
@@ -137,6 +138,7 @@ public class BesuService extends Service {
             .webSocketConfiguration(WebSocketConfiguration.createDefault())
             .metricsConfiguration(MetricsConfiguration.builder().build())
             .jsonRpcIpcConfiguration(new JsonRpcIpcConfiguration())
+            .engineJsonRpcConfiguration(JsonRpcConfiguration.createEngineDefault())
         .build();
 
     runner.startExternalServices();
