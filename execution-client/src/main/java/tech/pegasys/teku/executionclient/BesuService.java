@@ -58,6 +58,7 @@ import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.PermissioningService;
+import org.hyperledger.besu.plugin.services.RpcEndpointService;
 import org.hyperledger.besu.plugin.services.SecurityModuleService;
 import org.hyperledger.besu.plugin.services.StorageService;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -65,6 +66,7 @@ import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.services.PermissioningServiceImpl;
+import org.hyperledger.besu.services.RpcEndpointServiceImpl;
 import org.hyperledger.besu.services.SecurityModuleServiceImpl;
 import org.hyperledger.besu.services.StorageServiceImpl;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
@@ -101,10 +103,12 @@ public class BesuService extends Service {
 
     preparePlugins();
 
+    final EthNetworkConfig ethNetworkConfig = EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET);
+
     BesuController besuController =
         new BesuController.Builder()
             .fromEthNetworkConfig(
-                EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET),
+                ethNetworkConfig,
                 Collections.emptyMap(),
                 SyncMode.X_CHECKPOINT)
             .synchronizerConfiguration(new SynchronizerConfiguration.Builder().build())
@@ -123,6 +127,10 @@ public class BesuService extends Service {
             // .messagePermissioningProviders(permissioningService.getMessagePermissioningProviders())
             .build();
 
+    final JsonRpcConfiguration engineJsonRpcConfiguration = JsonRpcConfiguration.createEngineDefault();
+    engineJsonRpcConfiguration.setEnabled(true);
+    engineJsonRpcConfiguration.setAuthenticationEnabled(false);
+
     runner =
         new RunnerBuilder()
             .besuController(besuController)
@@ -138,7 +146,10 @@ public class BesuService extends Service {
             .webSocketConfiguration(WebSocketConfiguration.createDefault())
             .metricsConfiguration(MetricsConfiguration.builder().build())
             .jsonRpcIpcConfiguration(new JsonRpcIpcConfiguration())
-            .engineJsonRpcConfiguration(JsonRpcConfiguration.createEngineDefault())
+            .engineJsonRpcConfiguration(engineJsonRpcConfiguration)
+            .besuPluginContext(besuPluginContext)
+            .ethNetworkConfig(ethNetworkConfig)
+            .rpcEndpointService(new RpcEndpointServiceImpl())
         .build();
 
     runner.startExternalServices();
@@ -154,7 +165,7 @@ public class BesuService extends Service {
     //    besuPluginContext.addService(MetricCategoryRegistry.class, metricCategoryRegistry);
     besuPluginContext.addService(PermissioningService.class, permissioningService);
     //    besuPluginContext.addService(PrivacyPluginService.class, privacyPluginService);
-    //    besuPluginContext.addService(RpcEndpointService.class, rpcEndpointServiceImpl);
+//    besuPluginContext.addService(RpcEndpointService.class, rpcEndpointServiceImpl);
 
     // register built-in plugins
     bekuRocksDBPlugin = new BekuRocksDBPlugin();
