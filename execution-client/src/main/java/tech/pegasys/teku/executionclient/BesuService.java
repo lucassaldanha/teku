@@ -87,6 +87,7 @@ public class BesuService extends Service {
   private BesuPluginContextImpl besuPluginContext = new BesuPluginContextImpl();
   private final BesuConfiguration pluginCommonConfiguration =
       new BesuConfigurationImpl(dataDir(), dataDir().resolve(DATABASE_PATH));
+  private Runner runner;
 
   // TODO-beku we can pass config objects via constructor
 
@@ -121,7 +122,7 @@ public class BesuService extends Service {
             // .messagePermissioningProviders(permissioningService.getMessagePermissioningProviders())
             .build();
 
-    Runner runner =
+    runner =
         new RunnerBuilder()
             .besuController(besuController)
             .permissioningService(
@@ -235,6 +236,8 @@ public class BesuService extends Service {
     LOG.info("TODO: STOP Besu service");
 
     // TODO-beku stop besu
+    besuPluginContext.stopPlugins();
+    runner.close();
 
     return SafeFuture.COMPLETE;
   }
