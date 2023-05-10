@@ -156,6 +156,7 @@ dependencyManagement {
       entry('services')
       entry('plugins-rocksdb')
       entry('p2p')
+      entry('api')
       entry('core')
       entry('config') {
         exclude('org.apache.logging.log4j:log4j-slf4j2-impl')

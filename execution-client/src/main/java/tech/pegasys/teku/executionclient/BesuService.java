@@ -24,6 +24,8 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Collections;
 import java.util.Optional;
+
+import io.vertx.core.Vertx;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.hyperledger.besu.Runner;
@@ -36,6 +38,10 @@ import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.KeyPairUtil;
 import org.hyperledger.besu.cryptoservices.KeyPairSecurityModule;
 import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningParameters;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -49,6 +55,7 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProviderBui
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.MetricsSystemFactory;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
+import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.PermissioningService;
 import org.hyperledger.besu.plugin.services.SecurityModuleService;
@@ -73,7 +80,8 @@ public class BesuService extends Service {
   private final SecurityModuleServiceImpl securityModuleService = new SecurityModuleServiceImpl();
   private final StorageServiceImpl storageService = new StorageServiceImpl();
   private final PermissioningServiceImpl permissioningService = new PermissioningServiceImpl();
-  private ObservableMetricsSystem metricsSystem;
+  private ObservableMetricsSystem metricsSystem =
+      MetricsSystemFactory.create(MetricsCLIOptions.create().toDomainObject().build());
   private KeyValueStorageProvider keyValueStorageProvider;
   private BekuRocksDBPlugin bekuRocksDBPlugin;
   private BesuPluginContextImpl besuPluginContext = new BesuPluginContextImpl();
@@ -90,10 +98,6 @@ public class BesuService extends Service {
     LOG.info("TODO: Start Besu service");
 
     preparePlugins();
-
-    metricsSystem =
-        MetricsSystemFactory.create(MetricsCLIOptions.create().toDomainObject().build());
-    // TODO-beku start besu
 
     BesuController besuController =
         new BesuController.Builder()
@@ -114,7 +118,6 @@ public class BesuService extends Service {
             .gasLimitCalculator(new FrontierTargetingGasLimitCalculator())
             .evmConfiguration(EvmConfiguration.DEFAULT)
             .networkConfiguration(NetworkingConfiguration.create())
-            //
             // .messagePermissioningProviders(permissioningService.getMessagePermissioningProviders())
             .build();
 
@@ -124,8 +127,16 @@ public class BesuService extends Service {
             .permissioningService(
                 permissioningService) // required by RunnerBuilder.buildNodePermissioningController
             .metricsSystem(metricsSystem)
-            // TODO-beku add vertx etc for building DefaultP2PNetwork
-            .build();
+            .vertx(Vertx.vertx())
+            .storageProvider(keyValueStorageProvider(DEFAULT_KEY_VALUE_STORAGE_NAME))
+            .p2pAdvertisedHost("127.0.0.1")
+            .dataDir(dataDir())
+            .jsonRpcConfiguration(JsonRpcConfiguration.createDefault())
+            .graphQLConfiguration(GraphQLConfiguration.createDefault())
+            .webSocketConfiguration(WebSocketConfiguration.createDefault())
+            .metricsConfiguration(MetricsConfiguration.builder().build())
+            .jsonRpcIpcConfiguration(new JsonRpcIpcConfiguration())
+        .build();
 
     runner.startExternalServices();
     runner.startEthereumMainLoop();
