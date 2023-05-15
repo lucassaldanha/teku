@@ -24,6 +24,7 @@ import io.vertx.core.Vertx;
 import java.io.File;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
@@ -102,9 +103,9 @@ public class BesuService extends Service {
 
     preparePlugins();
 
-    final EthNetworkConfig ethNetworkConfig =
-        EthNetworkConfig.getNetworkConfig(NetworkName.GOERLI);
+    final EthNetworkConfig ethNetworkConfig = EthNetworkConfig.getNetworkConfig(NetworkName.GOERLI);
 
+    final NetworkingConfiguration networkingConfiguration = NetworkingConfiguration.create();
     BesuController besuController =
         new BesuController.Builder()
             .fromEthNetworkConfig(ethNetworkConfig, Collections.emptyMap(), SyncMode.X_CHECKPOINT)
@@ -120,7 +121,7 @@ public class BesuService extends Service {
             .storageProvider(keyValueStorageProvider(DEFAULT_KEY_VALUE_STORAGE_NAME))
             .gasLimitCalculator(new FrontierTargetingGasLimitCalculator())
             .evmConfiguration(EvmConfiguration.DEFAULT)
-            .networkConfiguration(NetworkingConfiguration.create())
+            .networkConfiguration(networkingConfiguration)
             // .messagePermissioningProviders(permissioningService.getMessagePermissioningProviders())
             .build();
 
@@ -128,6 +129,12 @@ public class BesuService extends Service {
         JsonRpcConfiguration.createEngineDefault();
     engineJsonRpcConfiguration.setEnabled(true);
     engineJsonRpcConfiguration.setAuthenticationEnabled(false);
+
+    final JsonRpcConfiguration jsonRpcConfiguration = JsonRpcConfiguration.createDefault();
+    jsonRpcConfiguration.setEnabled(true);
+    jsonRpcConfiguration.setRpcApis(
+        Arrays.asList("ETH", "NET", "WEB3", "ADMIN", "DEBUG", "ENGINE"));
+    jsonRpcConfiguration.setHostsAllowlist(Arrays.asList("*"));
 
     runner =
         new RunnerBuilder()
@@ -137,12 +144,12 @@ public class BesuService extends Service {
             .metricsSystem(metricsSystem)
             .vertx(Vertx.vertx())
             .storageProvider(keyValueStorageProvider(DEFAULT_KEY_VALUE_STORAGE_NAME))
-            .p2pAdvertisedHost("127.0.0.1")
+            .p2pAdvertisedHost("0.0.0.0")
             .p2pListenPort(DEFAULT_LISTENING_PORT)
             .p2pEnabled(true)
             .discovery(true)
             .dataDir(dataDir())
-            .jsonRpcConfiguration(JsonRpcConfiguration.createDefault())
+            .jsonRpcConfiguration(jsonRpcConfiguration)
             .graphQLConfiguration(GraphQLConfiguration.createDefault())
             .webSocketConfiguration(WebSocketConfiguration.createDefault())
             .metricsConfiguration(MetricsConfiguration.builder().build())
@@ -151,6 +158,7 @@ public class BesuService extends Service {
             .besuPluginContext(besuPluginContext)
             .ethNetworkConfig(ethNetworkConfig)
             .rpcEndpointService(new RpcEndpointServiceImpl())
+            .networkingConfiguration(networkingConfiguration)
             .build();
 
     besuPluginContext.beforeExternalServices();
