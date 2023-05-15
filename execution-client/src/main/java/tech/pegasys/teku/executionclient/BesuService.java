@@ -99,6 +99,7 @@ public class BesuService extends Service {
   @Override
   @SuppressWarnings("UnnecessarilyFullyQualified")
   protected tech.pegasys.teku.infrastructure.async.SafeFuture<?> doStart() {
+    LOG.debug("Starting BesuService");
     preparePlugins();
 
     final EthNetworkConfig ethNetworkConfig = EthNetworkConfig.getNetworkConfig(NetworkName.GOERLI);
@@ -256,6 +257,7 @@ public class BesuService extends Service {
   @SuppressWarnings("UnnecessarilyFullyQualified")
   protected tech.pegasys.teku.infrastructure.async.SafeFuture<?> doStop() {
     // TODO-beku stop besu
+    LOG.debug("Stopping BesuService");
     besuPluginContext.stopPlugins();
     runner.close();
 
