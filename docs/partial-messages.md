@@ -667,12 +667,13 @@ checklist in the Teku tracking issue (TBD).
       REJECT/IGNORE matrix from §8.1 / §8.2 against `AbstractValidatorTest`.
       *(commit: c4ee85f13b)*
 
-- [ ] **Step 5 — Caches and peer-state record.** Implement
+- [x] **Step 5 — Caches and peer-state record.** Implement
       `PartialDataColumnHeaderCache`,
       `PartialDataColumnLocalCellStore`, and the
       `PartialDataColumnPeerState` record in `networking/eth2`. Tests: LRU
       eviction, TTL behaviour, idempotent `merge` with disjoint /
       overlapping bitsets.
+      *(commit: a0f3c7a08d)*
 
 - [ ] **Step 6 — `PartialDataColumnSidecarHandler` (inbound only).**
       Implement `PartialMessagesHandler.onIncomingRpc` end-to-end (decode →
