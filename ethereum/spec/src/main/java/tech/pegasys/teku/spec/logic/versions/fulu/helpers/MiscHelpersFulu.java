@@ -39,6 +39,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 import tech.pegasys.teku.infrastructure.bytes.Bytes4;
 import tech.pegasys.teku.infrastructure.crypto.Hash;
 import tech.pegasys.teku.infrastructure.ssz.SszList;
+import tech.pegasys.teku.infrastructure.ssz.collections.SszBitlist;
 import tech.pegasys.teku.infrastructure.ssz.schema.SszListSchema;
 import tech.pegasys.teku.infrastructure.ssz.tree.MerkleUtil;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
@@ -46,6 +47,8 @@ import tech.pegasys.teku.kzg.KZGCell;
 import tech.pegasys.teku.kzg.KZGCellAndProof;
 import tech.pegasys.teku.kzg.KZGCellID;
 import tech.pegasys.teku.kzg.KZGCellWithColumnId;
+import tech.pegasys.teku.kzg.KZGCommitment;
+import tech.pegasys.teku.kzg.KZGProof;
 import tech.pegasys.teku.spec.config.SpecConfigElectra;
 import tech.pegasys.teku.spec.config.SpecConfigFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.DataColumnSidecar;
@@ -57,6 +60,8 @@ import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumn;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumnSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumnSidecarFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.MatrixEntry;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnHeaderFulu;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarFulu;
 import tech.pegasys.teku.spec.datastructures.blocks.BeaconBlock;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlock;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlockHeader;
@@ -342,6 +347,46 @@ public class MiscHelpersFulu extends MiscHelpersElectra {
         specConfigFulu.getKzgCommitmentsInclusionProofDepth().intValue(),
         getBlockBodyKzgCommitmentsGeneralizedIndex(),
         dataColumnSidecarFulu.getBlockBodyRoot());
+  }
+
+  public boolean verifyPartialDataColumnHeaderInclusionProof(
+      final PartialDataColumnHeaderFulu header) {
+    if (header.getKzgCommitments().isEmpty()) {
+      return false;
+    }
+    return predicates.isValidMerkleBranch(
+        header.getKzgCommitments().hashTreeRoot(),
+        header.getKzgCommitmentsInclusionProof(),
+        specConfigFulu.getKzgCommitmentsInclusionProofDepth().intValue(),
+        getBlockBodyKzgCommitmentsGeneralizedIndex(),
+        header.getSignedBlockHeader().getMessage().getBodyRoot());
+  }
+
+  public boolean verifyPartialDataColumnSidecarKzgProofs(
+      final PartialDataColumnSidecarFulu sidecar,
+      final List<KZGCommitment> kzgCommitments,
+      final int columnIndex) {
+    final SszBitlist bitmap = sidecar.getCellsPresentBitmap();
+    final List<KZGCommitment> selectedCommitments = new ArrayList<>();
+    final List<KZGCellWithColumnId> cellWithIds = new ArrayList<>();
+    final List<KZGProof> selectedProofs = new ArrayList<>();
+
+    int presentIndex = 0;
+    for (int blobIndex = 0; blobIndex < bitmap.size(); blobIndex++) {
+      if (bitmap.getBit(blobIndex)) {
+        selectedCommitments.add(kzgCommitments.get(blobIndex));
+        cellWithIds.add(
+            KZGCellWithColumnId.fromCellAndColumn(
+                new KZGCell(sidecar.getPartialColumn().get(presentIndex).getBytes()), columnIndex));
+        selectedProofs.add(sidecar.getKzgProofs().get(presentIndex).getKZGProof());
+        presentIndex++;
+      }
+    }
+
+    if (cellWithIds.isEmpty()) {
+      return true;
+    }
+    return getKzg().verifyCellProofBatch(selectedCommitments, cellWithIds, selectedProofs);
   }
 
   public int getBlockBodyKzgCommitmentsGeneralizedIndex() {

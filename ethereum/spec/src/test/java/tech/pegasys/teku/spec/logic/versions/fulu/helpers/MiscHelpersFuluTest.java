@@ -40,6 +40,9 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import tech.pegasys.teku.bls.BLSSignature;
 import tech.pegasys.teku.infrastructure.bytes.Bytes4;
+import tech.pegasys.teku.infrastructure.ssz.SszList;
+import tech.pegasys.teku.infrastructure.ssz.collections.SszBitlist;
+import tech.pegasys.teku.infrastructure.ssz.primitive.SszBytes32;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 import tech.pegasys.teku.kzg.KZG;
 import tech.pegasys.teku.kzg.KZGCommitment;
@@ -54,13 +57,20 @@ import tech.pegasys.teku.spec.config.SpecConfigFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.DataColumnSidecar;
 import tech.pegasys.teku.spec.datastructures.blobs.DataColumnSidecarSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.deneb.Blob;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.Cell;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumn;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumnSidecarFulu;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnHeaderFulu;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnHeaderSchemaFulu;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarFulu;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarSchemaFulu;
 import tech.pegasys.teku.spec.datastructures.blocks.BeaconBlockHeader;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlock;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlockHeader;
 import tech.pegasys.teku.spec.datastructures.state.BeaconStateTestBuilder;
 import tech.pegasys.teku.spec.datastructures.state.beaconstate.BeaconState;
+import tech.pegasys.teku.spec.datastructures.type.SszKZGCommitment;
+import tech.pegasys.teku.spec.datastructures.type.SszKZGProof;
 import tech.pegasys.teku.spec.logic.common.statetransition.availability.AvailabilityCheckerFactory;
 import tech.pegasys.teku.spec.logic.versions.electra.helpers.PredicatesElectra;
 import tech.pegasys.teku.spec.schemas.SchemaDefinitionsFulu;
@@ -456,5 +466,105 @@ public class MiscHelpersFuluTest {
 
     // Verify that all sidecars were reconstructed
     assertThat(reconstructedSidecars).isEqualTo(sharedOriginalSidecars);
+  }
+
+  @Test
+  public void verifyPartialDataColumnHeaderInclusionProof_emptyCommitments_returnsFalse() {
+    final DataStructureUtil dataStructureUtil = new DataStructureUtil(SPEC);
+    final PartialDataColumnHeaderSchemaFulu headerSchema =
+        schemaDefinitionsFulu.getPartialDataColumnHeaderSchema();
+    final PartialDataColumnHeaderFulu header =
+        headerSchema.create(
+            headerSchema.getKzgCommitmentsSchema().of(),
+            dataStructureUtil.randomSignedBeaconBlockHeader(),
+            headerSchema
+                .getKzgCommitmentsInclusionProofSchema()
+                .createFromElements(
+                    IntStream.range(
+                            0, specConfigFulu.getKzgCommitmentsInclusionProofDepth().intValue())
+                        .mapToObj(__ -> SszBytes32.of(dataStructureUtil.randomBytes32()))
+                        .toList()));
+
+    assertThat(miscHelpersFulu.verifyPartialDataColumnHeaderInclusionProof(header)).isFalse();
+  }
+
+  @Test
+  public void verifyPartialDataColumnHeaderInclusionProof_delegatesToPredicates() {
+    final PredicatesElectra predicatesMock = mock(PredicatesElectra.class);
+    when(predicatesMock.toVersionElectra()).thenReturn(Optional.of(predicatesMock));
+    when(predicatesMock.isValidMerkleBranch(any(), any(), anyInt(), anyInt(), any()))
+        .thenReturn(true);
+    final MiscHelpersFulu miscHelpersFuluWithMock =
+        new MiscHelpersFulu(specConfigFulu, predicatesMock, schemaDefinitionsFulu);
+
+    final DataStructureUtil dataStructureUtil = new DataStructureUtil(SPEC);
+    final PartialDataColumnHeaderSchemaFulu headerSchema =
+        schemaDefinitionsFulu.getPartialDataColumnHeaderSchema();
+    final SszKZGCommitment commitment =
+        new SszKZGCommitment(dataStructureUtil.randomKZGCommitment());
+    final PartialDataColumnHeaderFulu header =
+        headerSchema.create(
+            headerSchema.getKzgCommitmentsSchema().createFromElements(List.of(commitment)),
+            dataStructureUtil.randomSignedBeaconBlockHeader(),
+            headerSchema
+                .getKzgCommitmentsInclusionProofSchema()
+                .createFromElements(
+                    IntStream.range(
+                            0, specConfigFulu.getKzgCommitmentsInclusionProofDepth().intValue())
+                        .mapToObj(__ -> SszBytes32.of(dataStructureUtil.randomBytes32()))
+                        .toList()));
+
+    assertThat(miscHelpersFuluWithMock.verifyPartialDataColumnHeaderInclusionProof(header))
+        .isTrue();
+  }
+
+  @Test
+  public void verifyPartialDataColumnSidecarKzgProofs_emptyCells_returnsTrue() {
+    final PartialDataColumnSidecarSchemaFulu partialSchema =
+        schemaDefinitionsFulu.getPartialDataColumnSidecarSchema();
+    final PartialDataColumnSidecarFulu sidecar =
+        partialSchema.create(
+            partialSchema.getCellsPresentBitmapSchema().ofBits(0),
+            partialSchema.getPartialColumnSchema().createFromElements(List.of()),
+            partialSchema.getKzgProofsSchema().createFromElements(List.of()),
+            partialSchema.getHeaderSchema().createFromElements(List.of()));
+
+    assertThat(miscHelpersFulu.verifyPartialDataColumnSidecarKzgProofs(sidecar, List.of(), 0))
+        .isTrue();
+  }
+
+  @Test
+  public void verifyPartialDataColumnSidecarKzgProofs_allCellsPresent_returnsTrue()
+      throws Exception {
+    final byte[] sidecarSsz =
+        Resources.toByteArray(Resources.getResource(MiscHelpersFuluTest.class, "sidecar.ssz"));
+    final DataColumnSidecar sidecar =
+        schemaDefinitionsFulu.getDataColumnSidecarSchema().sszDeserialize(Bytes.wrap(sidecarSsz));
+    final DataColumnSidecarFulu sidecarFulu = DataColumnSidecarFulu.required(sidecar);
+    final int numCells = sidecarFulu.getColumn().size();
+
+    final PartialDataColumnSidecarSchemaFulu partialSchema =
+        schemaDefinitionsFulu.getPartialDataColumnSidecarSchema();
+    final int[] allBits = IntStream.range(0, numCells).toArray();
+    final SszBitlist bitmap = partialSchema.getCellsPresentBitmapSchema().ofBits(numCells, allBits);
+    final SszList<Cell> cells =
+        partialSchema
+            .getPartialColumnSchema()
+            .createFromElements(sidecarFulu.getColumn().stream().toList());
+    final SszList<SszKZGProof> proofs =
+        partialSchema
+            .getKzgProofsSchema()
+            .createFromElements(sidecarFulu.getKzgProofs().stream().toList());
+    final PartialDataColumnSidecarFulu partialSidecar =
+        partialSchema.create(
+            bitmap, cells, proofs, partialSchema.getHeaderSchema().createFromElements(List.of()));
+
+    final List<KZGCommitment> commitments =
+        sidecarFulu.getKzgCommitments().stream().map(SszKZGCommitment::getKZGCommitment).toList();
+
+    assertThat(
+            miscHelpersFulu.verifyPartialDataColumnSidecarKzgProofs(
+                partialSidecar, commitments, sidecar.getIndex().intValue()))
+        .isTrue();
   }
 }
