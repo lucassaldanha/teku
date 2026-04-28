@@ -683,11 +683,12 @@ checklist in the Teku tracking issue (TBD).
       validation outcomes, reassembly trigger fires exactly once.
       *(commit: a587ab14ab)*
 
-- [ ] **Step 7 — `PartialDataColumnSidecarPublisher`.** Implement reactive
+- [x] **Step 7 — `PartialDataColumnSidecarPublisher`.** Implement reactive
       and metadata-only publishes (publish callsites 1 + 2 from §7.1) on top
       of `Gossip.publishPartial`. Wire `onEmitGossip` properly. Tests: in
       `networking/eth2`, with a real jvm-libp2p `Gossip` on a 2-node
       simulator.
+      *(commit: 0356a17ff7)*
 
 - [ ] **Step 8 — Subscription wiring + master CLI flag.** Extend
       `DataColumnSidecarSubnetSubscriptions.subscribe(subnetId)` to pass the
