@@ -644,12 +644,13 @@ checklist in the Teku tracking issue (TBD).
       delta**: pin the consensus-spec PR commit in §2.
       *(commit: 7bd0c41e3d)*
 
-- [ ] **Step 2 — Verification helpers.** Add
+- [x] **Step 2 — Verification helpers.** Add
       `verifyPartialDataColumnHeaderInclusionProof` and
       `verifyPartialDataColumnSidecarKzgProofs` to `MiscHelpersFulu` (and
       stubs in `MiscHelpersGloas` that throw). Tests: golden-vector tests
       against the consensus-spec test vectors when available; until then,
       construct synthetic inputs from a real `DataColumnSidecar`.
+      *(commit: b9d0f55a86)*
 
 - [ ] **Step 3 — `PartialDataColumnSidecarUtil` hierarchy.** Following the
       pattern in CLAUDE.md ("Fork-Aware Development Patterns"), create the
