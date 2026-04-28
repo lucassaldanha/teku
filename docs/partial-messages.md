@@ -652,12 +652,13 @@ checklist in the Teku tracking issue (TBD).
       construct synthetic inputs from a real `DataColumnSidecar`.
       *(commit: b9d0f55a86)*
 
-- [ ] **Step 3 — `PartialDataColumnSidecarUtil` hierarchy.** Following the
+- [x] **Step 3 — `PartialDataColumnSidecarUtil` hierarchy.** Following the
       pattern in CLAUDE.md ("Fork-Aware Development Patterns"), create the
       abstract base, `PartialDataColumnSidecarUtilFulu`, and a stub
       `PartialDataColumnSidecarUtilGloas` (deferred). Wire into `SpecLogic`
       and add convenience method to `Spec.java`. Tests: abstract test base,
       `Fulu` impl test.
+      *(commit: b4607832d3)*
 
 - [ ] **Step 4 — Validators.** Implement
       `PartialDataColumnHeaderGossipValidator` and
