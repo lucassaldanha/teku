@@ -642,7 +642,7 @@ checklist in the Teku tracking issue (TBD).
       `ethereum/spec`. Wire schemas into `SchemaDefinitionsFulu`. No callers
       yet. Tests: SSZ round-trip + JSON serializer parity (unit). **Doc
       delta**: pin the consensus-spec PR commit in §2.
-      *(commit: TBD after commit)*
+      *(commit: 7bd0c41e3d)*
 
 - [ ] **Step 2 — Verification helpers.** Add
       `verifyPartialDataColumnHeaderInclusionProof` and
