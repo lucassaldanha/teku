@@ -73,6 +73,9 @@ import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.INDEXED_PAYLOA
 import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.LIGHT_CLIENT_BOOTSTRAP_SCHEMA;
 import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.MATRIX_ENTRY_SCHEMA;
 import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.METADATA_MESSAGE_SCHEMA;
+import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.PARTIAL_DATA_COLUMN_HEADER_SCHEMA;
+import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.PARTIAL_DATA_COLUMN_PARTS_METADATA_SCHEMA;
+import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.PARTIAL_DATA_COLUMN_SIDECAR_SCHEMA;
 import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.PAYLOAD_ATTESTATION_DATA_SCHEMA;
 import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.PAYLOAD_ATTESTATION_MESSAGE_SCHEMA;
 import static tech.pegasys.teku.spec.schemas.registry.SchemaTypes.PAYLOAD_ATTESTATION_SCHEMA;
@@ -124,6 +127,9 @@ import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.CellSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumnSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumnSidecarSchemaFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.MatrixEntrySchema;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnHeaderSchemaFulu;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata.PartialDataColumnPartsMetadataSchema;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarSchemaFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.gloas.DataColumnSidecarSchemaGloas;
 import tech.pegasys.teku.spec.datastructures.blocks.BeaconBlockSchema;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlockHeader;
@@ -291,6 +297,9 @@ public class SchemaRegistryBuilder {
         .addProvider(createProposerLookaheadSchemaProvider())
         .addProvider(createDataColumnSidecarsByRootRequestMessageSchemaProvider())
         .addProvider(createDataColumnSidecarsByRangeRequestMessageSchemaProvider())
+        .addProvider(createPartialDataColumnPartsMetadataSchemaProvider())
+        .addProvider(createPartialDataColumnHeaderSchemaProvider())
+        .addProvider(createPartialDataColumnSidecarSchemaProvider())
 
         // GLOAS
         .addProvider(createBuilderPendingWithdrawalSchemaProvider())
@@ -918,6 +927,37 @@ public class SchemaRegistryBuilder {
             (registry, specConfig, schemaName) ->
                 new DataColumnSidecarsByRangeRequestMessage
                     .DataColumnSidecarsByRangeRequestMessageSchema(
+                    SpecConfigFulu.required(specConfig)))
+        .build();
+  }
+
+  private static SchemaProvider<?> createPartialDataColumnPartsMetadataSchemaProvider() {
+    return providerBuilder(PARTIAL_DATA_COLUMN_PARTS_METADATA_SCHEMA)
+        .withCreator(
+            FULU,
+            (registry, specConfig, schemaName) ->
+                new PartialDataColumnPartsMetadataSchema(SpecConfigFulu.required(specConfig)))
+        .build();
+  }
+
+  private static SchemaProvider<?> createPartialDataColumnHeaderSchemaProvider() {
+    return providerBuilder(PARTIAL_DATA_COLUMN_HEADER_SCHEMA)
+        .withCreator(
+            FULU,
+            (registry, specConfig, schemaName) ->
+                new PartialDataColumnHeaderSchemaFulu(
+                    SignedBeaconBlockHeader.SSZ_SCHEMA, SpecConfigFulu.required(specConfig)))
+        .build();
+  }
+
+  private static SchemaProvider<?> createPartialDataColumnSidecarSchemaProvider() {
+    return providerBuilder(PARTIAL_DATA_COLUMN_SIDECAR_SCHEMA)
+        .withCreator(
+            FULU,
+            (registry, specConfig, schemaName) ->
+                new PartialDataColumnSidecarSchemaFulu(
+                    registry.get(CELL_SCHEMA),
+                    registry.get(PARTIAL_DATA_COLUMN_HEADER_SCHEMA),
                     SpecConfigFulu.required(specConfig)))
         .build();
   }

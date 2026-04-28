@@ -34,6 +34,9 @@ import tech.pegasys.teku.spec.datastructures.blobs.versions.deneb.BlobSidecarSch
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.CellSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumnSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.MatrixEntrySchema;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnHeaderSchemaFulu;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata.PartialDataColumnPartsMetadataSchema;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarSchemaFulu;
 import tech.pegasys.teku.spec.datastructures.blocks.BeaconBlockSchema;
 import tech.pegasys.teku.spec.datastructures.blocks.BlockContentsWithBlobsSchema;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlockSchema;
@@ -234,6 +237,13 @@ public class SchemaTypes {
           DataColumnSidecarsByRangeRequestMessage.DataColumnSidecarsByRangeRequestMessageSchema>
       DATA_COLUMN_SIDECARS_BY_RANGE_REQUEST_MESSAGE_SCHEMA =
           create("DATA_COLUMN_SIDECARS_BY_RANGE_REQUEST_MESSAGE_SCHEMA");
+  public static final SchemaId<PartialDataColumnPartsMetadataSchema>
+      PARTIAL_DATA_COLUMN_PARTS_METADATA_SCHEMA =
+          create("PARTIAL_DATA_COLUMN_PARTS_METADATA_SCHEMA");
+  public static final SchemaId<PartialDataColumnHeaderSchemaFulu>
+      PARTIAL_DATA_COLUMN_HEADER_SCHEMA = create("PARTIAL_DATA_COLUMN_HEADER_SCHEMA");
+  public static final SchemaId<PartialDataColumnSidecarSchemaFulu>
+      PARTIAL_DATA_COLUMN_SIDECAR_SCHEMA = create("PARTIAL_DATA_COLUMN_SIDECAR_SCHEMA");
 
   // Gloas
   public static final SchemaId<BuilderPendingPaymentSchema> BUILDER_PENDING_PAYMENT_SCHEMA =

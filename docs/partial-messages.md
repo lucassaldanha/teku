@@ -637,11 +637,12 @@ Order chosen so each step is testable in isolation, the master flag stays
 `false` until Step 8, and no step exceeds ~1 week of work. Mirror this
 checklist in the Teku tracking issue (TBD).
 
-- [ ] **Step 1 — SSZ schemas.** Add `PartialDataColumnSidecar`,
+- [x] **Step 1 — SSZ schemas.** Add `PartialDataColumnSidecar`,
       `PartialDataColumnPartsMetadata`, `PartialDataColumnHeader` (Fulu) to
       `ethereum/spec`. Wire schemas into `SchemaDefinitionsFulu`. No callers
       yet. Tests: SSZ round-trip + JSON serializer parity (unit). **Doc
       delta**: pin the consensus-spec PR commit in §2.
+      *(commit: TBD after commit)*
 
 - [ ] **Step 2 — Verification helpers.** Add
       `verifyPartialDataColumnHeaderInclusionProof` and
