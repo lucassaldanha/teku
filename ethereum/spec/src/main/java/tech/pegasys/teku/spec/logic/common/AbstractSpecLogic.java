@@ -31,6 +31,7 @@ import tech.pegasys.teku.spec.logic.common.util.BlindBlockUtil;
 import tech.pegasys.teku.spec.logic.common.util.BlockProposalUtil;
 import tech.pegasys.teku.spec.logic.common.util.DataColumnSidecarUtil;
 import tech.pegasys.teku.spec.logic.common.util.ForkChoiceUtil;
+import tech.pegasys.teku.spec.logic.common.util.PartialDataColumnSidecarUtil;
 import tech.pegasys.teku.spec.logic.common.util.ValidatorsUtil;
 
 public abstract class AbstractSpecLogic implements SpecLogic {
@@ -173,6 +174,11 @@ public abstract class AbstractSpecLogic implements SpecLogic {
 
   @Override
   public Optional<DataColumnSidecarUtil> getDataColumnSidecarUtil() {
+    return Optional.empty();
+  }
+
+  @Override
+  public Optional<PartialDataColumnSidecarUtil> getPartialDataColumnSidecarUtil() {
     return Optional.empty();
   }
 }

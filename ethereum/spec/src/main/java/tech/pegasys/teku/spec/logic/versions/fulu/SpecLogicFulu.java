@@ -32,6 +32,7 @@ import tech.pegasys.teku.spec.logic.common.util.DataColumnSidecarUtil;
 import tech.pegasys.teku.spec.logic.common.util.ExecutionPayloadProposalUtil;
 import tech.pegasys.teku.spec.logic.common.util.ForkChoiceUtil;
 import tech.pegasys.teku.spec.logic.common.util.LightClientUtil;
+import tech.pegasys.teku.spec.logic.common.util.PartialDataColumnSidecarUtil;
 import tech.pegasys.teku.spec.logic.common.util.SyncCommitteeUtil;
 import tech.pegasys.teku.spec.logic.common.util.ValidatorsUtil;
 import tech.pegasys.teku.spec.logic.common.withdrawals.WithdrawalsHelpers;
@@ -58,6 +59,7 @@ import tech.pegasys.teku.spec.logic.versions.fulu.util.BlindBlockUtilFulu;
 import tech.pegasys.teku.spec.logic.versions.fulu.util.BlockProposalUtilFulu;
 import tech.pegasys.teku.spec.logic.versions.fulu.util.DataColumnSidecarUtilFulu;
 import tech.pegasys.teku.spec.logic.versions.fulu.util.ForkChoiceUtilFulu;
+import tech.pegasys.teku.spec.logic.versions.fulu.util.PartialDataColumnSidecarUtilFulu;
 import tech.pegasys.teku.spec.schemas.SchemaDefinitionsFulu;
 
 public class SpecLogicFulu extends AbstractSpecLogic {
@@ -66,6 +68,7 @@ public class SpecLogicFulu extends AbstractSpecLogic {
   private final Optional<WithdrawalsHelpers> withdrawalsHelpers;
   private final Optional<ExecutionRequestsProcessor> executionRequestsProcessor;
   private final Optional<DataColumnSidecarUtil> dataColumnSidecarUtil;
+  private final Optional<PartialDataColumnSidecarUtil> partialDataColumnSidecarUtil;
 
   private SpecLogicFulu(
       final Predicates predicates,
@@ -88,7 +91,8 @@ public class SpecLogicFulu extends AbstractSpecLogic {
       final SyncCommitteeUtil syncCommitteeUtil,
       final LightClientUtil lightClientUtil,
       final FuluStateUpgrade stateUpgrade,
-      final DataColumnSidecarUtil dataColumnSidecarUtil) {
+      final DataColumnSidecarUtil dataColumnSidecarUtil,
+      final PartialDataColumnSidecarUtil partialDataColumnSidecarUtil) {
     super(
         predicates,
         miscHelpers,
@@ -111,6 +115,7 @@ public class SpecLogicFulu extends AbstractSpecLogic {
     this.withdrawalsHelpers = Optional.of(withdrawalsHelpers);
     this.executionRequestsProcessor = Optional.of(executionRequestsProcessor);
     this.dataColumnSidecarUtil = Optional.of(dataColumnSidecarUtil);
+    this.partialDataColumnSidecarUtil = Optional.of(partialDataColumnSidecarUtil);
   }
 
   public static SpecLogicFulu create(
@@ -218,6 +223,8 @@ public class SpecLogicFulu extends AbstractSpecLogic {
 
     // Data column sidecar util
     final DataColumnSidecarUtil dataColumnSidecarUtil = new DataColumnSidecarUtilFulu(miscHelpers);
+    final PartialDataColumnSidecarUtil partialDataColumnSidecarUtil =
+        new PartialDataColumnSidecarUtilFulu(miscHelpers);
 
     return new SpecLogicFulu(
         predicates,
@@ -240,7 +247,8 @@ public class SpecLogicFulu extends AbstractSpecLogic {
         syncCommitteeUtil,
         lightClientUtil,
         stateUpgrade,
-        dataColumnSidecarUtil);
+        dataColumnSidecarUtil,
+        partialDataColumnSidecarUtil);
   }
 
   @Override
@@ -281,5 +289,10 @@ public class SpecLogicFulu extends AbstractSpecLogic {
   @Override
   public Optional<DataColumnSidecarUtil> getDataColumnSidecarUtil() {
     return dataColumnSidecarUtil;
+  }
+
+  @Override
+  public Optional<PartialDataColumnSidecarUtil> getPartialDataColumnSidecarUtil() {
+    return partialDataColumnSidecarUtil;
   }
 }

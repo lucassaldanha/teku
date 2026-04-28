@@ -120,6 +120,7 @@ import tech.pegasys.teku.spec.logic.common.util.BeaconStateUtil;
 import tech.pegasys.teku.spec.logic.common.util.DataColumnSidecarUtil;
 import tech.pegasys.teku.spec.logic.common.util.ExecutionPayloadProposalUtil.ExecutionPayloadProposalData;
 import tech.pegasys.teku.spec.logic.common.util.LightClientUtil;
+import tech.pegasys.teku.spec.logic.common.util.PartialDataColumnSidecarUtil;
 import tech.pegasys.teku.spec.logic.common.util.SyncCommitteeUtil;
 import tech.pegasys.teku.spec.logic.versions.bellatrix.block.OptimisticExecutionPayloadExecutor;
 import tech.pegasys.teku.spec.logic.versions.deneb.helpers.MiscHelpersDeneb;
@@ -1157,6 +1158,15 @@ public class Spec {
         .getDataColumnSidecarUtil()
         .orElseThrow(
             () -> new IllegalStateException("DataColumnSidecarUtil not available at slot " + slot));
+  }
+
+  public PartialDataColumnSidecarUtil getPartialDataColumnSidecarUtil(final UInt64 slot) {
+    return atSlot(slot)
+        .getPartialDataColumnSidecarUtil()
+        .orElseThrow(
+            () ->
+                new IllegalStateException(
+                    "PartialDataColumnSidecarUtil not available at slot " + slot));
   }
 
   // Execution Payload Verifier Utils
