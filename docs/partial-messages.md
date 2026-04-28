@@ -675,12 +675,13 @@ checklist in the Teku tracking issue (TBD).
       overlapping bitsets.
       *(commit: a0f3c7a08d)*
 
-- [ ] **Step 6 — `PartialDataColumnSidecarHandler` (inbound only).**
+- [x] **Step 6 — `PartialDataColumnSidecarHandler` (inbound only).**
       Implement `PartialMessagesHandler.onIncomingRpc` end-to-end (decode →
       validate → merge → feedback → schedule reactive publish). Stub
       `onEmitGossip` (logs only). No `Gossip.publishPartial` wiring yet —
       use a fake collaborator. Tests: 4-combo of (header? × cells?), all
       validation outcomes, reassembly trigger fires exactly once.
+      *(commit: a587ab14ab)*
 
 - [ ] **Step 7 — `PartialDataColumnSidecarPublisher`.** Implement reactive
       and metadata-only publishes (publish callsites 1 + 2 from §7.1) on top
