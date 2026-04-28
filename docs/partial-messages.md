@@ -660,11 +660,12 @@ checklist in the Teku tracking issue (TBD).
       `Fulu` impl test.
       *(commit: b4607832d3)*
 
-- [ ] **Step 4 — Validators.** Implement
+- [x] **Step 4 — Validators.** Implement
       `PartialDataColumnHeaderGossipValidator` and
       `PartialDataColumnSidecarGossipValidator` in
       `ethereum/statetransition`. No gossip wiring yet. Tests: full
       REJECT/IGNORE matrix from §8.1 / §8.2 against `AbstractValidatorTest`.
+      *(commit: c4ee85f13b)*
 
 - [ ] **Step 5 — Caches and peer-state record.** Implement
       `PartialDataColumnHeaderCache`,
