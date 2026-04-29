@@ -37,6 +37,7 @@ import io.libp2p.pubsub.gossip.GossipParams;
 import io.libp2p.pubsub.gossip.GossipRouter;
 import io.libp2p.pubsub.gossip.GossipScoreParams;
 import io.libp2p.pubsub.gossip.builders.GossipRouterBuilder;
+import io.libp2p.pubsub.gossip.partialmessages.PartialMessagesHandler;
 import io.netty.channel.ChannelHandler;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
@@ -73,6 +74,7 @@ public class LibP2PGossipNetworkBuilder {
   protected TimeProvider timeProvider;
   protected boolean recordArrivalTime = DEFAULT_RECORD_MESSAGE_ARRIVAL;
   protected boolean partialMessagesEnabled = false;
+  protected PartialMessagesHandler<?> partialMessagesHandler = null;
 
   protected ChannelHandler debugGossipHandler = null;
 
@@ -159,6 +161,9 @@ public class LibP2PGossipNetworkBuilder {
     builder.setMessageValidator(STRICT_FIELDS_VALIDATOR);
     if (partialMessagesEnabled) {
       builder.enabledGossipExtensions(GossipExtension.PARTIAL_MESSAGES);
+      if (partialMessagesHandler != null) {
+        builder.setPartialMessagesHandler(partialMessagesHandler);
+      }
     }
     return builder.build();
   }
@@ -234,6 +239,12 @@ public class LibP2PGossipNetworkBuilder {
 
   public LibP2PGossipNetworkBuilder partialMessagesEnabled(final boolean partialMessagesEnabled) {
     this.partialMessagesEnabled = partialMessagesEnabled;
+    return this;
+  }
+
+  public LibP2PGossipNetworkBuilder partialMessagesHandler(
+      final PartialMessagesHandler<?> partialMessagesHandler) {
+    this.partialMessagesHandler = partialMessagesHandler;
     return this;
   }
 }

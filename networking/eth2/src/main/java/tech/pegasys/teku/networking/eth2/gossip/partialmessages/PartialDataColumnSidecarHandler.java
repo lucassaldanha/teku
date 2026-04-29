@@ -14,6 +14,9 @@
 package tech.pegasys.teku.networking.eth2.gossip.partialmessages;
 
 import io.libp2p.core.PeerId;
+import io.libp2p.pubsub.gossip.partialmessages.FeedbackKind;
+import io.libp2p.pubsub.gossip.partialmessages.PartialMessagesHandler;
+import io.libp2p.pubsub.gossip.partialmessages.PartialMessagesPeerFeedback;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -27,9 +30,6 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import pubsub.pb.Rpc;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
-import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.FeedbackKind;
-import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialMessagesHandler;
-import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialMessagesPeerFeedback;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata.PartialDataColumnPartsMetadataSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarFulu;

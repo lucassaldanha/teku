@@ -403,6 +403,8 @@ public class BeaconChainController extends Service implements BeaconChainControl
   protected volatile DataColumnSidecarManager dataColumnSidecarManager;
   protected volatile Optional<PartialDataColumnSidecarHandler> partialDataColumnSidecarHandler =
       Optional.empty();
+  protected volatile Optional<PartialDataColumnSidecarPublisher> partialDataColumnSidecarPublisher =
+      Optional.empty();
   protected volatile ProposerPreferencesManager proposerPreferencesManager;
   protected volatile ExecutionPayloadBidManager executionPayloadBidManager;
   protected volatile ExecutionPayloadManager executionPayloadManager;
@@ -958,10 +960,10 @@ public class BeaconChainController extends Service implements BeaconChainControl
     final var reassembler =
         new PartialDataColumnReassembler(spec, headerCache, dataColumnSidecarManager, null);
 
-    @SuppressWarnings("unused")
-    final var publisher =
-        new PartialDataColumnSidecarPublisher(
-            PartialGossip.NOOP, headerCache, cellStore, sidecarSchema, metadataSchema);
+    partialDataColumnSidecarPublisher =
+        Optional.of(
+            new PartialDataColumnSidecarPublisher(
+                PartialGossip.NOOP, headerCache, cellStore, sidecarSchema, metadataSchema));
 
     partialDataColumnSidecarHandler =
         Optional.of(
@@ -2040,7 +2042,7 @@ public class BeaconChainController extends Service implements BeaconChainControl
     final DataColumnSidecarArchiveReconstructor dataColumnSidecarArchiveReconstructor =
         DataColumnSidecarArchiveReconstructor.NOOP;
 
-    this.p2pNetwork =
+    final Eth2P2PNetworkBuilder eth2NetworkBuilder =
         createEth2P2PNetworkBuilder()
             .config(beaconConfig.p2pConfig())
             .eventChannels(eventChannels)
@@ -2084,8 +2086,10 @@ public class BeaconChainController extends Service implements BeaconChainControl
             .requiredCheckpoint(weakSubjectivityValidator.getWSCheckpoint())
             .specProvider(spec)
             .recordMessageArrival(true)
-            .p2pDebugDataDumper(debugDataDumper)
-            .build();
+            .p2pDebugDataDumper(debugDataDumper);
+    this.p2pNetwork = eth2NetworkBuilder.build();
+    partialDataColumnSidecarPublisher.ifPresent(
+        publisher -> publisher.setPartialGossip(eth2NetworkBuilder.getBuiltPartialGossip()));
 
     syncCommitteeMessagePool.subscribeOperationAdded(
         new LocalOperationAcceptedFilter<>(p2pNetwork::publishSyncCommitteeMessage));

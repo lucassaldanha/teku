@@ -48,6 +48,8 @@ import tech.pegasys.teku.networking.eth2.gossip.forks.versions.GossipForkSubscri
 import tech.pegasys.teku.networking.eth2.gossip.forks.versions.GossipForkSubscriptionsGloasBpo;
 import tech.pegasys.teku.networking.eth2.gossip.forks.versions.GossipForkSubscriptionsPhase0;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnSidecarHandler;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.GossipBackedPartialGossip;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialGossip;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.AttestationSubnetTopicProvider;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.DataColumnSidecarSubnetTopicProvider;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.NodeIdToDataColumnSidecarSubnetsCalculator;
@@ -168,6 +170,7 @@ public class Eth2P2PNetworkBuilder {
   private DataColumnSidecarArchiveReconstructor dataColumnSidecarArchiveReconstructor;
   protected Optional<PartialDataColumnSidecarHandler> partialDataColumnSidecarHandler =
       Optional.empty();
+  private PartialGossip builtPartialGossip = PartialGossip.NOOP;
 
   protected Eth2P2PNetworkBuilder() {}
 
@@ -534,7 +537,7 @@ public class Eth2P2PNetworkBuilder {
     final NetworkConfig networkConfig = config.getNetworkConfig();
     final DiscoveryConfig discoConfig = config.getDiscoveryConfig();
 
-    final P2PNetwork<Peer> p2pNetwork =
+    final LibP2PNetworkBuilder libP2PBuilder =
         createLibP2PNetworkBuilder()
             .asyncRunner(asyncRunner)
             .metricsSystem(metricsSystem)
@@ -549,14 +552,16 @@ public class Eth2P2PNetworkBuilder {
             .gossipTopicFilter(gossipTopicsFilter)
             .timeProvider(timeProvider)
             .recordMessageArrival(recordMessageArrival)
-            .partialMessagesEnabled(config.isPartialMessagesEnabled())
-            .build();
-
+            .partialMessagesEnabled(config.isPartialMessagesEnabled());
     partialDataColumnSidecarHandler.ifPresent(
-        handler ->
-            LOG.debug(
-                "Partial messages handler registered; will be wired to GossipRouter when"
-                    + " jvm-libp2p feature branch is available"));
+        handler -> libP2PBuilder.partialMessagesHandler(handler));
+
+    final P2PNetwork<Peer> p2pNetwork = libP2PBuilder.build();
+
+    if (config.isPartialMessagesEnabled()) {
+      builtPartialGossip = new GossipBackedPartialGossip(libP2PBuilder.getGossip());
+      LOG.debug("Partial messages wired to GossipRouter");
+    }
 
     final AttestationSubnetTopicProvider attestationSubnetTopicProvider =
         new AttestationSubnetTopicProvider(
@@ -918,5 +923,9 @@ public class Eth2P2PNetworkBuilder {
       final Optional<PartialDataColumnSidecarHandler> handler) {
     this.partialDataColumnSidecarHandler = handler;
     return this;
+  }
+
+  public PartialGossip getBuiltPartialGossip() {
+    return builtPartialGossip;
   }
 }

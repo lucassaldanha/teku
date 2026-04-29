@@ -14,6 +14,7 @@
 package tech.pegasys.teku.networking.eth2.gossip.partialmessages;
 
 import io.libp2p.core.PeerId;
+import io.libp2p.pubsub.gossip.partialmessages.PublishAction;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -26,7 +27,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes32;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialGossip;
-import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PublishAction;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PublishActionsFn;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.Cell;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnHeaderFulu;
@@ -48,17 +48,15 @@ import tech.pegasys.teku.spec.datastructures.type.SszKZGProof;
  *       PartialDataColumnSidecarHandler#onEmitGossip} to refresh peers' availability views.
  * </ol>
  *
- * <p>Uses {@link PartialGossip} rather than {@code io.libp2p.pubsub.gossip.Gossip} directly, so
- * that it compiles against the jvm-libp2p develop jar (which does not yet expose {@code
- * Gossip.publishPartial}). When jvm-libp2p merges the partial-messages feature branch, the {@link
- * PartialGossip} shim can be replaced with a direct delegation.
+ * <p>Uses {@link PartialGossip} as an indirection over {@code io.libp2p.pubsub.gossip.Gossip} so
+ * that the real implementation can be injected after the network is built.
  */
 public class PartialDataColumnSidecarPublisher {
 
   private static final Logger LOG = LogManager.getLogger();
   private static final byte GROUP_ID_VERSION_BYTE = 0x00;
 
-  private final PartialGossip partialGossip;
+  private volatile PartialGossip partialGossip;
   private final PartialDataColumnHeaderCache headerCache;
   private final PartialDataColumnLocalCellStore cellStore;
   private final PartialDataColumnSidecarSchemaFulu sidecarSchema;
@@ -75,6 +73,10 @@ public class PartialDataColumnSidecarPublisher {
     this.cellStore = cellStore;
     this.sidecarSchema = sidecarSchema;
     this.metadataSchema = metadataSchema;
+  }
+
+  public void setPartialGossip(final PartialGossip partialGossip) {
+    this.partialGossip = partialGossip;
   }
 
   /**

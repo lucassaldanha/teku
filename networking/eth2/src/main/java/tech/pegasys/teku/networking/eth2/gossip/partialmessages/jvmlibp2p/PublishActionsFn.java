@@ -14,16 +14,16 @@
 package tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p;
 
 import io.libp2p.core.PeerId;
+import io.libp2p.pubsub.gossip.partialmessages.PublishAction;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
 /**
- * Mirrors {@code io.libp2p.pubsub.gossip.partialmessages.PublishActionsFn} from the jvm-libp2p
- * partial-messages feature branch.
- *
- * <p>The {@code decide} function is called on the pubsub event thread with the current peer state
- * map and a predicate for checking whether a peer requested partial for the topic.
+ * Java-friendly alternative to {@code io.libp2p.pubsub.gossip.partialmessages.PublishActionsFn}.
+ * Uses Java {@link Stream}/{@link java.util.Map.Entry} instead of Kotlin Sequence/Pair so that Teku
+ * code stays idiomatic Java. The bridge to the jvm-libp2p type lives in {@code
+ * GossipBackedPartialGossip}.
  */
 @FunctionalInterface
 public interface PublishActionsFn<PeerState> {

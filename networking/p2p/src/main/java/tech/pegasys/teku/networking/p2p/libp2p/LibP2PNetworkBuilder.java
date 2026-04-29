@@ -30,6 +30,8 @@ import io.libp2p.core.mux.StreamMuxerProtocol;
 import io.libp2p.etc.types.ByteArrayExtKt;
 import io.libp2p.protocol.Identify;
 import io.libp2p.protocol.Ping;
+import io.libp2p.pubsub.gossip.Gossip;
+import io.libp2p.pubsub.gossip.partialmessages.PartialMessagesHandler;
 import io.libp2p.security.noise.NoiseXXSecureChannel;
 import io.libp2p.transport.tcp.TcpTransport;
 import io.netty.handler.logging.LogLevel;
@@ -93,6 +95,7 @@ public class LibP2PNetworkBuilder {
   protected PeerManager peerManager;
   protected boolean recordMessageArrival = DEFAULT_RECORD_MESSAGE_ARRIVAL;
   protected boolean partialMessagesEnabled = false;
+  protected PartialMessagesHandler<?> partialMessagesHandler = null;
 
   protected LibP2PNetworkBuilder() {}
 
@@ -157,17 +160,25 @@ public class LibP2PNetworkBuilder {
   }
 
   protected LibP2PGossipNetwork createGossipNetwork() {
-    return createLibP2PGossipNetworkBuilder()
-        .metricsSystem(metricsSystem)
-        .gossipConfig(config.getGossipConfig())
-        .networkingSpecConfig(networkingSpecConfig)
-        .defaultMessageFactory(preparedGossipMessageFactory)
-        .gossipTopicFilter(gossipTopicFilter)
-        .logWireGossip(config.getWireLogsConfig().isLogWireGossip())
-        .timeProvider(timeProvider)
-        .recordArrivalTime(recordMessageArrival)
-        .partialMessagesEnabled(partialMessagesEnabled)
-        .build();
+    final LibP2PGossipNetworkBuilder builder =
+        createLibP2PGossipNetworkBuilder()
+            .metricsSystem(metricsSystem)
+            .gossipConfig(config.getGossipConfig())
+            .networkingSpecConfig(networkingSpecConfig)
+            .defaultMessageFactory(preparedGossipMessageFactory)
+            .gossipTopicFilter(gossipTopicFilter)
+            .logWireGossip(config.getWireLogsConfig().isLogWireGossip())
+            .timeProvider(timeProvider)
+            .recordArrivalTime(recordMessageArrival)
+            .partialMessagesEnabled(partialMessagesEnabled);
+    if (partialMessagesHandler != null) {
+      builder.partialMessagesHandler(partialMessagesHandler);
+    }
+    return builder.build();
+  }
+
+  public Gossip getGossip() {
+    return gossipNetwork.getGossip();
   }
 
   protected PeerManager createPeerManager() {
@@ -351,6 +362,12 @@ public class LibP2PNetworkBuilder {
 
   public LibP2PNetworkBuilder partialMessagesEnabled(final boolean partialMessagesEnabled) {
     this.partialMessagesEnabled = partialMessagesEnabled;
+    return this;
+  }
+
+  public LibP2PNetworkBuilder partialMessagesHandler(
+      final PartialMessagesHandler<?> partialMessagesHandler) {
+    this.partialMessagesHandler = partialMessagesHandler;
     return this;
   }
 }
