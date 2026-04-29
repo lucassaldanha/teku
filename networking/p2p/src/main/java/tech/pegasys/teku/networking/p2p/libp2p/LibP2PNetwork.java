@@ -210,6 +210,12 @@ public class LibP2PNetwork implements P2PNetwork<Peer> {
     gossipNetwork.updateGossipTopicScoring(config);
   }
 
+  @Override
+  public void setTopicPartialFlags(
+      final String topic, final boolean requestsPartial, final boolean supportsSendingPartial) {
+    gossipNetwork.setTopicPartialFlags(topic, requestsPartial, supportsSendingPartial);
+  }
+
   @FunctionalInterface
   public interface PrivateKeyProvider {
     PrivKey get();

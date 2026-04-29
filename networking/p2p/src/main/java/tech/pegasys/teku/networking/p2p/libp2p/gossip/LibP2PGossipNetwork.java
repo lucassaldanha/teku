@@ -121,7 +121,7 @@ public class LibP2PGossipNetwork implements GossipNetwork {
   @Override
   public void setTopicPartialFlags(
       final String topic, final boolean requestsPartial, final boolean supportsSendingPartial) {
-    LOG.debug(
+    LOG.info(
         "Setting partial-messages flags for topic={} requestsPartial={} supportsSendingPartial={}",
         topic,
         requestsPartial,

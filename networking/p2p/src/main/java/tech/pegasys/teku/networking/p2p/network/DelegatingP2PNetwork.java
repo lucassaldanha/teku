@@ -131,6 +131,12 @@ public abstract class DelegatingP2PNetwork<T extends Peer> implements P2PNetwork
   }
 
   @Override
+  public void setTopicPartialFlags(
+      final String topic, final boolean requestsPartial, final boolean supportsSendingPartial) {
+    network.setTopicPartialFlags(topic, requestsPartial, supportsSendingPartial);
+  }
+
+  @Override
   public Optional<DiscoveryNetwork<?>> getDiscoveryNetwork() {
     return network.getDiscoveryNetwork();
   }
