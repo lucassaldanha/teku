@@ -69,6 +69,7 @@ public class P2PConfig {
   public static final int DEFAULT_HISTORICAL_DATA_MAX_CONCURRENT_QUERIES = 3;
   public static final int DEFAULT_HISTORICAL_MAX_QUERY_QUEUE_SIZE = 500;
   public static final boolean DEFAULT_EXECUTION_PROOF_GOSSIP_ENABLED = false;
+  public static final boolean DEFAULT_PARTIAL_DATA_COLUMN_GOSSIP_ENABLED = false;
 
   public static final int DEFAULT_MIN_BID_INCREMENT_PERCENTAGE = 1;
 
@@ -102,6 +103,7 @@ public class P2PConfig {
   private final boolean reworkedSidecarSyncEnabled;
   private final boolean columnsDataAvailabilityHalfCheckEnabled;
   private final boolean executionProofTopicEnabled;
+  private final boolean partialDataColumnGossipEnabled;
   private final boolean subscribeAllCustodySubnetsEnabled;
   private final int minBidIncrementPercentage;
 
@@ -134,6 +136,7 @@ public class P2PConfig {
       final Integer reworkedSidecarSyncPollPeriod,
       final boolean columnsDataAvailabilityHalfCheckEnabled,
       final boolean executionProofTopicEnabled,
+      final boolean partialDataColumnGossipEnabled,
       final boolean subscribeAllCustodySubnetsEnabled,
       final int minBidIncrementPercentage) {
     this.spec = spec;
@@ -165,6 +168,7 @@ public class P2PConfig {
     this.reworkedSidecarSyncPollPeriod = reworkedSidecarSyncPollPeriod;
     this.columnsDataAvailabilityHalfCheckEnabled = columnsDataAvailabilityHalfCheckEnabled;
     this.executionProofTopicEnabled = executionProofTopicEnabled;
+    this.partialDataColumnGossipEnabled = partialDataColumnGossipEnabled;
     this.subscribeAllCustodySubnetsEnabled = subscribeAllCustodySubnetsEnabled;
     this.minBidIncrementPercentage = minBidIncrementPercentage;
   }
@@ -265,6 +269,10 @@ public class P2PConfig {
     return executionProofTopicEnabled;
   }
 
+  public boolean isPartialDataColumnGossipEnabled() {
+    return partialDataColumnGossipEnabled;
+  }
+
   public boolean isGossipBlobsAfterBlockEnabled() {
     return isGossipBlobsAfterBlockEnabled;
   }
@@ -330,6 +338,7 @@ public class P2PConfig {
         DEFAULT_FLOOD_PUBLISH_MAX_MESSAGE_SIZE_THRESHOLD;
     private boolean gossipBlobsAfterBlockEnabled = DEFAULT_GOSSIP_BLOBS_AFTER_BLOCK_ENABLED;
     private boolean executionProofTopicEnabled = DEFAULT_EXECUTION_PROOF_GOSSIP_ENABLED;
+    private boolean partialDataColumnGossipEnabled = DEFAULT_PARTIAL_DATA_COLUMN_GOSSIP_ENABLED;
     private Integer reworkedSidecarRecoveryTimeout = DEFAULT_RECOVERY_TIMEOUT_MS;
     private Integer reworkedSidecarDownloadTimeout = DEFAULT_DOWNLOAD_TIMEOUT_MS;
 
@@ -412,6 +421,7 @@ public class P2PConfig {
           reworkedSidecarSyncPollPeriod,
           columnsDataAvailabilityHalfCheckEnabled,
           executionProofTopicEnabled,
+          partialDataColumnGossipEnabled,
           subscribeAllCustodySubnetsEnabled,
           minBidIncrementPercentage);
     }
@@ -580,6 +590,11 @@ public class P2PConfig {
 
     public Builder executionProofTopicEnabled(final boolean executionProofTopicEnabled) {
       this.executionProofTopicEnabled = executionProofTopicEnabled;
+      return this;
+    }
+
+    public Builder partialDataColumnGossipEnabled(final boolean partialDataColumnGossipEnabled) {
+      this.partialDataColumnGossipEnabled = partialDataColumnGossipEnabled;
       return this;
     }
 

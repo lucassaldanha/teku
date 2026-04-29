@@ -92,6 +92,7 @@ public class LibP2PNetworkBuilder {
   protected List<? extends RpcHandler<?, ?, ?>> rpcHandlers;
   protected PeerManager peerManager;
   protected boolean recordMessageArrival = DEFAULT_RECORD_MESSAGE_ARRIVAL;
+  protected boolean partialMessagesEnabled = false;
 
   protected LibP2PNetworkBuilder() {}
 
@@ -165,6 +166,7 @@ public class LibP2PNetworkBuilder {
         .logWireGossip(config.getWireLogsConfig().isLogWireGossip())
         .timeProvider(timeProvider)
         .recordArrivalTime(recordMessageArrival)
+        .partialMessagesEnabled(partialMessagesEnabled)
         .build();
   }
 
@@ -344,6 +346,11 @@ public class LibP2PNetworkBuilder {
 
   public LibP2PNetworkBuilder recordMessageArrival(final boolean recordMessageArrival) {
     this.recordMessageArrival = recordMessageArrival;
+    return this;
+  }
+
+  public LibP2PNetworkBuilder partialMessagesEnabled(final boolean partialMessagesEnabled) {
+    this.partialMessagesEnabled = partialMessagesEnabled;
     return this;
   }
 }

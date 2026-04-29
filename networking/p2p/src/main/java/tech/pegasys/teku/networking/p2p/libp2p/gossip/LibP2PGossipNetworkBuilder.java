@@ -32,6 +32,7 @@ import io.libp2p.pubsub.SeenCache;
 import io.libp2p.pubsub.TTLSeenCache;
 import io.libp2p.pubsub.TopicSubscriptionFilter;
 import io.libp2p.pubsub.gossip.Gossip;
+import io.libp2p.pubsub.gossip.GossipExtension;
 import io.libp2p.pubsub.gossip.GossipParams;
 import io.libp2p.pubsub.gossip.GossipRouter;
 import io.libp2p.pubsub.gossip.GossipScoreParams;
@@ -71,6 +72,7 @@ public class LibP2PGossipNetworkBuilder {
   protected boolean logWireGossip;
   protected TimeProvider timeProvider;
   protected boolean recordArrivalTime = DEFAULT_RECORD_MESSAGE_ARRIVAL;
+  protected boolean partialMessagesEnabled = false;
 
   protected ChannelHandler debugGossipHandler = null;
 
@@ -154,6 +156,9 @@ public class LibP2PGossipNetworkBuilder {
           return new PreparedPubsubMessage(msg, preparedMessage);
         });
     builder.setMessageValidator(STRICT_FIELDS_VALIDATOR);
+    if (partialMessagesEnabled) {
+      builder.enabledGossipExtensions(GossipExtension.PARTIAL_MESSAGES);
+    }
     return builder.build();
   }
 
@@ -223,6 +228,11 @@ public class LibP2PGossipNetworkBuilder {
 
   public LibP2PGossipNetworkBuilder recordArrivalTime(final boolean recordArrivalTime) {
     this.recordArrivalTime = recordArrivalTime;
+    return this;
+  }
+
+  public LibP2PGossipNetworkBuilder partialMessagesEnabled(final boolean partialMessagesEnabled) {
+    this.partialMessagesEnabled = partialMessagesEnabled;
     return this;
   }
 }

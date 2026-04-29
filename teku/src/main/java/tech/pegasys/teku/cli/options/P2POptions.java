@@ -459,6 +459,19 @@ public class P2POptions {
   private boolean executionProofTopicEnabled = P2PConfig.DEFAULT_EXECUTION_PROOF_GOSSIP_ENABLED;
 
   @Option(
+      names = {"--Xpartial-data-column-sidecar-gossip-enabled"},
+      paramLabel = "<BOOLEAN>",
+      showDefaultValue = Visibility.ALWAYS,
+      description =
+          "Enable partial-messages extension on data_column_sidecar gossip topics. Requires"
+              + " jvm-libp2p with partial-messages support.",
+      arity = "0..1",
+      hidden = true,
+      fallbackValue = "true")
+  private boolean partialDataColumnGossipEnabled =
+      P2PConfig.DEFAULT_PARTIAL_DATA_COLUMN_GOSSIP_ENABLED;
+
+  @Option(
       names = {"--Xpeer-request-limit"},
       paramLabel = "<NUMBER>",
       description =
@@ -710,6 +723,7 @@ public class P2POptions {
                   .historicalDataMaxConcurrentQueries(historicalDataMaxConcurrentQueries)
                   .historicalDataMaxQueryQueueSize(historicalDataMaxQueryQueueSize)
                   .executionProofTopicEnabled(executionProofTopicEnabled)
+                  .partialDataColumnGossipEnabled(partialDataColumnGossipEnabled)
                   .reworkedSidecarRecoveryTimeout(sidecarCancelTimeoutMs)
                   .reworkedSidecarDownloadTimeout(sidecarDownloadTimeoutMs)
                   .reworkedSidecarSyncPollPeriod(reworkedSidecarCustodySyncPollPeriodSeconds)

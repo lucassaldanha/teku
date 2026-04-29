@@ -542,6 +542,7 @@ public class Eth2P2PNetworkBuilder {
             .gossipTopicFilter(gossipTopicsFilter)
             .timeProvider(timeProvider)
             .recordMessageArrival(recordMessageArrival)
+            .partialMessagesEnabled(config.isPartialDataColumnGossipEnabled())
             .build();
 
     final AttestationSubnetTopicProvider attestationSubnetTopicProvider =
