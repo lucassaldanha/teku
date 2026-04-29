@@ -104,6 +104,7 @@ public class GossipForkSubscriptionsGloasTest {
         DasGossipLogger.NOOP,
         noopOperationProcessor,
         false,
-        () -> false);
+        () -> false,
+        false);
   }
 }

@@ -44,6 +44,7 @@ public class DataColumnSidecarSubnetSubscriptions extends CommitteeSubnetSubscri
   private final DataColumnSidecarSchema<DataColumnSidecar> dataColumnSidecarSchema;
   private final DebugDataDumper debugDataDumper;
   private final MiscHelpersFulu miscHelpersFulu;
+  private final boolean partialMessagesEnabled;
 
   public DataColumnSidecarSubnetSubscriptions(
       final Spec spec,
@@ -54,7 +55,8 @@ public class DataColumnSidecarSubnetSubscriptions extends CommitteeSubnetSubscri
       final OperationProcessor<DataColumnSidecar> processor,
       final DebugDataDumper debugDataDumper,
       final ForkInfo forkInfo,
-      final Bytes4 forkDigest) {
+      final Bytes4 forkDigest,
+      final boolean partialMessagesEnabled) {
     super(gossipNetwork, gossipEncoding);
     this.asyncRunner = asyncRunner;
     this.recentChainData = recentChainData;
@@ -62,6 +64,7 @@ public class DataColumnSidecarSubnetSubscriptions extends CommitteeSubnetSubscri
     this.debugDataDumper = debugDataDumper;
     this.forkInfo = forkInfo;
     this.forkDigest = forkDigest;
+    this.partialMessagesEnabled = partialMessagesEnabled;
     final SpecVersion specVersion =
         spec.forMilestone(spec.getForkSchedule().getHighestSupportedMilestone());
     this.dataColumnSidecarSchema =
@@ -81,6 +84,13 @@ public class DataColumnSidecarSubnetSubscriptions extends CommitteeSubnetSubscri
   @Override
   protected Eth2TopicHandler<?> createTopicHandler(final int subnetId) {
     final String topicName = GossipTopicName.getDataColumnSidecarSubnetTopicName(subnetId);
+    if (partialMessagesEnabled) {
+      // Opt this topic in to gossipsub-1.3 partial-messages so peers send PartialMessagesExtension
+      // RPCs on it. Must be done before the subscribe is announced.
+      final String fullTopic =
+          GossipTopics.getDataColumnSidecarSubnetTopic(forkDigest, subnetId, gossipEncoding);
+      gossipNetwork.setTopicPartialFlags(fullTopic, true, true);
+    }
     return DataColumnSidecarTopicHandler.createHandler(
         recentChainData,
         asyncRunner,

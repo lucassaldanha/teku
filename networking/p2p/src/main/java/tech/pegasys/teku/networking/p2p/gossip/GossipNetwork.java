@@ -28,4 +28,15 @@ public interface GossipNetwork {
   Map<String, Collection<NodeId>> getSubscribersByTopic();
 
   void updateGossipTopicScoring(final GossipTopicsScoringConfig config);
+
+  /**
+   * Configures the gossipsub-1.3 partial-messages flags advertised on this node's subscribe
+   * announcements for {@code topic}. Must be called before {@link #subscribe} for the flags to take
+   * effect on the initial announcement. Default implementation is a no-op for implementations that
+   * do not support gossipsub 1.3.
+   */
+  default void setTopicPartialFlags(
+      final String topic, final boolean requestsPartial, final boolean supportsSendingPartial) {
+    // no-op
+  }
 }

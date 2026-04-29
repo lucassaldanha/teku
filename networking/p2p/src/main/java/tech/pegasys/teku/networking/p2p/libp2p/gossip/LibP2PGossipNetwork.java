@@ -19,6 +19,7 @@ import io.libp2p.core.pubsub.PubsubSubscription;
 import io.libp2p.core.pubsub.Topic;
 import io.libp2p.pubsub.PubsubRouterMessageValidator;
 import io.libp2p.pubsub.gossip.Gossip;
+import io.libp2p.pubsub.gossip.GossipRouter;
 import io.libp2p.pubsub.gossip.GossipTopicScoreParams;
 import io.netty.buffer.Unpooled;
 import java.util.Collection;
@@ -50,16 +51,19 @@ public class LibP2PGossipNetwork implements GossipNetwork {
 
   private final MetricsSystem metricsSystem;
   private final Gossip gossip;
+  private final GossipRouter gossipRouter;
   private final PubsubPublisherApi publisher;
   private final GossipTopicHandlers topicHandlers;
 
   public LibP2PGossipNetwork(
       final MetricsSystem metricsSystem,
       final Gossip gossip,
+      final GossipRouter gossipRouter,
       final PubsubPublisherApi publisher,
       final GossipTopicHandlers topicHandlers) {
     this.metricsSystem = metricsSystem;
     this.gossip = gossip;
+    this.gossipRouter = gossipRouter;
     this.publisher = publisher;
     this.topicHandlers = topicHandlers;
   }
@@ -112,5 +116,16 @@ public class LibP2PGossipNetwork implements GossipNetwork {
 
   public Gossip getGossip() {
     return gossip;
+  }
+
+  @Override
+  public void setTopicPartialFlags(
+      final String topic, final boolean requestsPartial, final boolean supportsSendingPartial) {
+    LOG.debug(
+        "Setting partial-messages flags for topic={} requestsPartial={} supportsSendingPartial={}",
+        topic,
+        requestsPartial,
+        supportsSendingPartial);
+    gossipRouter.setTopicPartialFlags(topic, requestsPartial, supportsSendingPartial);
   }
 }

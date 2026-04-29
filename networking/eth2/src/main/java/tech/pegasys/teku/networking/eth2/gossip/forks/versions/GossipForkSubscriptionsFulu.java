@@ -47,6 +47,7 @@ public class GossipForkSubscriptionsFulu extends GossipForkSubscriptionsElectra 
   private DataColumnSidecarGossipManager dataColumnSidecarGossipManager;
   public DasGossipLogger dasGossipLogger;
   private final Supplier<Boolean> isSuperNodeSupplier;
+  private final boolean partialMessagesEnabled;
 
   public GossipForkSubscriptionsFulu(
       final Fork fork,
@@ -74,7 +75,8 @@ public class GossipForkSubscriptionsFulu extends GossipForkSubscriptionsElectra 
       final DasGossipLogger dasGossipLogger,
       final OperationProcessor<ExecutionProof> executionProofOperationProcessor,
       final boolean isExecutionProofTopicEnabled,
-      final Supplier<Boolean> isSuperNodeSupplier) {
+      final Supplier<Boolean> isSuperNodeSupplier,
+      final boolean partialMessagesEnabled) {
     super(
         fork,
         spec,
@@ -99,6 +101,7 @@ public class GossipForkSubscriptionsFulu extends GossipForkSubscriptionsElectra 
     this.dataColumnSidecarOperationProcessor = dataColumnSidecarOperationProcessor;
     this.dasGossipLogger = dasGossipLogger;
     this.isSuperNodeSupplier = isSuperNodeSupplier;
+    this.partialMessagesEnabled = partialMessagesEnabled;
   }
 
   @Override
@@ -118,7 +121,8 @@ public class GossipForkSubscriptionsFulu extends GossipForkSubscriptionsElectra 
             dataColumnSidecarOperationProcessor,
             debugDataDumper,
             forkInfo,
-            forkDigest);
+            forkDigest,
+            partialMessagesEnabled);
 
     this.dataColumnSidecarGossipManager =
         new DataColumnSidecarGossipManager(

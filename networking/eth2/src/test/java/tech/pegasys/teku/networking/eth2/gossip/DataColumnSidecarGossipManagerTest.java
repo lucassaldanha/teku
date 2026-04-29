@@ -122,7 +122,8 @@ public class DataColumnSidecarGossipManagerTest {
             processor,
             DebugDataDumper.NOOP,
             forkInfo,
-            forkDigest);
+            forkDigest,
+            false);
 
     dataColumnSidecarGossipManager =
         new DataColumnSidecarGossipManager(subnetSubscriptions, dasGossipLogger, () -> false);

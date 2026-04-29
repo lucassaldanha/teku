@@ -90,7 +90,8 @@ public class GossipForkSubscriptionsGloas extends GossipForkSubscriptionsFulu {
       final DasGossipLogger dasGossipLogger,
       final OperationProcessor<ExecutionProof> executionProcessorOperationProcessor,
       final boolean isExecutionProofTopicEnabled,
-      final Supplier<Boolean> isSuperNodeSupplier) {
+      final Supplier<Boolean> isSuperNodeSupplier,
+      final boolean partialMessagesEnabled) {
     super(
         fork,
         spec,
@@ -114,7 +115,8 @@ public class GossipForkSubscriptionsGloas extends GossipForkSubscriptionsFulu {
         dasGossipLogger,
         executionProcessorOperationProcessor,
         isExecutionProofTopicEnabled,
-        isSuperNodeSupplier);
+        isSuperNodeSupplier,
+        partialMessagesEnabled);
     this.executionPayloadProcessor = executionPayloadOperationProcessor;
     this.payloadAttestationMessageProcessor = payloadAttestationMessageOperationProcessor;
     this.executionPayloadBidProcessor = executionPayloadBidOperationProcessor;

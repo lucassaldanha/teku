@@ -77,6 +77,7 @@ public class LibP2PGossipNetworkBuilder {
   protected PartialMessagesHandler<?> partialMessagesHandler = null;
 
   protected ChannelHandler debugGossipHandler = null;
+  protected GossipRouter createdGossipRouter = null;
 
   protected LibP2PGossipNetworkBuilder() {}
 
@@ -88,7 +89,8 @@ public class LibP2PGossipNetworkBuilder {
             gossipConfig, networkingSpecConfig, logWireGossip, gossipTopicFilter, topicHandlers);
     final PubsubPublisherApi publisher = gossip.createPublisher(null, NULL_SEQNO_GENERATOR);
 
-    return new LibP2PGossipNetwork(metricsSystem, gossip, publisher, topicHandlers);
+    return new LibP2PGossipNetwork(
+        metricsSystem, gossip, createdGossipRouter, publisher, topicHandlers);
   }
 
   private void validate() {
@@ -165,7 +167,9 @@ public class LibP2PGossipNetworkBuilder {
         builder.setPartialMessagesHandler(partialMessagesHandler);
       }
     }
-    return builder.build();
+    final GossipRouter router = builder.build();
+    this.createdGossipRouter = router;
+    return router;
   }
 
   protected Gossip createGossip(

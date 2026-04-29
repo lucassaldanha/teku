@@ -78,7 +78,8 @@ public class GossipForkSubscriptionsGloasBpo extends GossipForkSubscriptionsGloa
       final DasGossipLogger dasGossipLogger,
       final BlobParameters bpo,
       final boolean isExecutionProofTopicEnabled,
-      final Supplier<Boolean> isSuperNodeSupplier) {
+      final Supplier<Boolean> isSuperNodeSupplier,
+      final boolean partialMessagesEnabled) {
     super(
         fork,
         spec,
@@ -106,7 +107,8 @@ public class GossipForkSubscriptionsGloasBpo extends GossipForkSubscriptionsGloa
         dasGossipLogger,
         executionProofOperationProcessor,
         isExecutionProofTopicEnabled,
-        isSuperNodeSupplier);
+        isSuperNodeSupplier,
+        partialMessagesEnabled);
     this.bpo = bpo;
   }
 

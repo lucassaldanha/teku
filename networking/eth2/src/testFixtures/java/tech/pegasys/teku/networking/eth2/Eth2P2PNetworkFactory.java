@@ -573,7 +573,8 @@ public class Eth2P2PNetworkFactory {
                 DasGossipLogger.NOOP,
                 executionProofOperationProcessor,
                 p2PConfig.isExecutionProofTopicEnabled(),
-                isSuperNodeSupplier);
+                isSuperNodeSupplier,
+                p2PConfig.isPartialMessagesEnabled());
         case GLOAS, HEZE ->
             new GossipForkSubscriptionsGloas(
                 forkAndSpecMilestone.getFork(),
@@ -602,7 +603,8 @@ public class Eth2P2PNetworkFactory {
                 DasGossipLogger.NOOP,
                 executionProofOperationProcessor,
                 p2PConfig.isExecutionProofTopicEnabled(),
-                isSuperNodeSupplier);
+                isSuperNodeSupplier,
+                p2PConfig.isPartialMessagesEnabled());
       };
     }
 
