@@ -20,16 +20,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.libp2p.pubsub.gossip.Gossip;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import kotlin.Unit;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialGossip;
 import tech.pegasys.teku.spec.Spec;
 import tech.pegasys.teku.spec.SpecMilestone;
 import tech.pegasys.teku.spec.TestSpecFactory;
@@ -58,7 +57,7 @@ class PartialDataColumnSidecarPublisherTest {
   private final PartialDataColumnPartsMetadataSchema metadataSchema =
       schemas.getPartialDataColumnPartsMetadataSchema();
 
-  private final Gossip gossip = mock(Gossip.class);
+  private final PartialGossip partialGossip = mock(PartialGossip.class);
   private final PartialDataColumnHeaderCache headerCache = PartialDataColumnHeaderCache.create(10);
   private final PartialDataColumnLocalCellStore cellStore =
       PartialDataColumnLocalCellStore.create(10);
@@ -70,10 +69,10 @@ class PartialDataColumnSidecarPublisherTest {
   void setup() {
     publisher =
         new PartialDataColumnSidecarPublisher(
-            gossip, headerCache, cellStore, sidecarSchema, metadataSchema);
+            partialGossip, headerCache, cellStore, sidecarSchema, metadataSchema);
 
-    when(gossip.publishPartial(any(), any(), any()))
-        .thenReturn(CompletableFuture.completedFuture(Unit.INSTANCE));
+    when(partialGossip.publishPartial(any(), any(), any()))
+        .thenReturn(CompletableFuture.completedFuture(null));
 
     final SignedBeaconBlock block =
         dataStructureUtil.randomSignedBeaconBlock(2L, dataStructureUtil.randomBytes32());
@@ -98,17 +97,17 @@ class PartialDataColumnSidecarPublisherTest {
     final var result = publisher.publishReactive(TOPIC, blockRoot, COLUMN_INDEX, Map.of());
 
     assertThat(result).isCompleted();
-    verify(gossip).publishPartial(eq(TOPIC), any(byte[].class), any());
+    verify(partialGossip).publishPartial(eq(TOPIC), any(byte[].class), any());
   }
 
   @Test
   void publishReactive_groupIdHasCorrectFormat() {
     final var capturedGroupIds = new ArrayList<byte[]>();
-    when(gossip.publishPartial(any(), any(), any()))
+    when(partialGossip.publishPartial(any(), any(), any()))
         .thenAnswer(
             invocation -> {
               capturedGroupIds.add(invocation.getArgument(1));
-              return CompletableFuture.completedFuture(Unit.INSTANCE);
+              return CompletableFuture.completedFuture(null);
             });
 
     final var ignored = publisher.publishReactive(TOPIC, blockRoot, COLUMN_INDEX, Map.of());
@@ -125,7 +124,7 @@ class PartialDataColumnSidecarPublisherTest {
     final var result = publisher.publishMetadataOnly(TOPIC, blockRoot, COLUMN_INDEX);
 
     assertThat(result).isCompleted();
-    verify(gossip).publishPartial(eq(TOPIC), any(byte[].class), any());
+    verify(partialGossip).publishPartial(eq(TOPIC), any(byte[].class), any());
   }
 
   @Test
@@ -154,6 +153,6 @@ class PartialDataColumnSidecarPublisherTest {
 
     final var result = publisher.publishReactive(TOPIC, blockRoot, COLUMN_INDEX, Map.of());
     assertThat(result).isCompleted();
-    verify(gossip).publishPartial(eq(TOPIC), any(byte[].class), any());
+    verify(partialGossip).publishPartial(eq(TOPIC), any(byte[].class), any());
   }
 }

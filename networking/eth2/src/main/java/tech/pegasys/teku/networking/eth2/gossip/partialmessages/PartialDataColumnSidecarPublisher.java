@@ -14,19 +14,18 @@
 package tech.pegasys.teku.networking.eth2.gossip.partialmessages;
 
 import io.libp2p.core.PeerId;
-import io.libp2p.pubsub.gossip.Gossip;
-import io.libp2p.pubsub.gossip.partialmessages.PublishAction;
-import io.libp2p.pubsub.gossip.partialmessages.PublishActionsFn;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import kotlin.Pair;
-import kotlin.jvm.functions.Function1;
-import kotlin.sequences.SequencesKt;
+import java.util.function.Function;
 import org.apache.tuweni.bytes.Bytes32;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialGossip;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PublishAction;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PublishActionsFn;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.Cell;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnHeaderFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata;
@@ -47,26 +46,28 @@ import tech.pegasys.teku.spec.datastructures.type.SszKZGProof;
  *       PartialDataColumnSidecarHandler#onEmitGossip} to refresh peers' availability views.
  * </ol>
  *
- * <p>Both publish paths are implemented through {@link Gossip#publishPartial}, which routes the RPC
- * to all partial-capable mesh peers via the jvm-libp2p router.
+ * <p>Uses {@link PartialGossip} rather than {@code io.libp2p.pubsub.gossip.Gossip} directly, so
+ * that it compiles against the jvm-libp2p develop jar (which does not yet expose {@code
+ * Gossip.publishPartial}). When jvm-libp2p merges the partial-messages feature branch, the {@link
+ * PartialGossip} shim can be replaced with a direct delegation.
  */
 public class PartialDataColumnSidecarPublisher {
 
   private static final byte GROUP_ID_VERSION_BYTE = 0x00;
 
-  private final Gossip gossip;
+  private final PartialGossip partialGossip;
   private final PartialDataColumnHeaderCache headerCache;
   private final PartialDataColumnLocalCellStore cellStore;
   private final PartialDataColumnSidecarSchemaFulu sidecarSchema;
   private final PartialDataColumnPartsMetadataSchema metadataSchema;
 
   public PartialDataColumnSidecarPublisher(
-      final Gossip gossip,
+      final PartialGossip partialGossip,
       final PartialDataColumnHeaderCache headerCache,
       final PartialDataColumnLocalCellStore cellStore,
       final PartialDataColumnSidecarSchemaFulu sidecarSchema,
       final PartialDataColumnPartsMetadataSchema metadataSchema) {
-    this.gossip = gossip;
+    this.partialGossip = partialGossip;
     this.headerCache = headerCache;
     this.cellStore = cellStore;
     this.sidecarSchema = sidecarSchema;
@@ -76,36 +77,33 @@ public class PartialDataColumnSidecarPublisher {
   /**
    * Reactively publishes cells to peers that have requested them (call site 1).
    *
-   * <p>For each peer in {@code peerStates} that has requested cells we can serve, this builds a
-   * {@link PartialDataColumnSidecarFulu} containing those cells (plus the header if the peer has
-   * not yet sent us any message) and enqueues an outbound RPC via jvm-libp2p.
-   *
    * @param topic the gossip topic (e.g. {@code /eth2/<fd>/data_column_sidecar_N/ssz_snappy})
    * @param blockRoot the block root from the group ID
    * @param columnIndex the data column index for this topic
+   * @param peerStates snapshot of current peer states (not required to call publishPartial; the
+   *     live map is passed via the actionsFn)
    */
   public SafeFuture<Void> publishReactive(
       final String topic,
       final Bytes32 blockRoot,
       final int columnIndex,
-      final Map<PeerId, PartialDataColumnPeerState> peerStates) {
+      @SuppressWarnings("unused") final Map<PeerId, PartialDataColumnPeerState> peerStates) {
 
     final byte[] groupId = buildGroupId(blockRoot);
     final PublishActionsFn<PartialDataColumnPeerState> actionsFn =
         (livePeerStates, peerRequestsPartial) ->
-            SequencesKt.asSequence(
-                buildReactiveActions(blockRoot, columnIndex, livePeerStates, peerRequestsPartial)
-                    .iterator());
+            buildReactiveActions(blockRoot, columnIndex, livePeerStates, peerRequestsPartial)
+                .stream()
+                .map(
+                    entry ->
+                        (Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>)
+                            new AbstractMap.SimpleEntry<>(entry.getKey(), entry.getValue()));
 
-    return SafeFuture.of(gossip.publishPartial(topic, groupId, actionsFn)).thenApply(__ -> null);
+    return SafeFuture.of(partialGossip.publishPartial(topic, groupId, actionsFn));
   }
 
   /**
    * Publishes a metadata-only RPC to inform peers of our current cell availability (call site 2).
-   *
-   * <p>This is called from {@link PartialDataColumnSidecarHandler#onEmitGossip} during the gossip
-   * heartbeat. Peers that have not recently received our metadata will get an updated {@link
-   * PartialDataColumnPartsMetadata} showing which cells we have for this block+column.
    *
    * @param topic the gossip topic
    * @param blockRoot the block root from the group ID
@@ -120,22 +118,24 @@ public class PartialDataColumnSidecarPublisher {
 
     final PublishActionsFn<PartialDataColumnPeerState> actionsFn =
         (peerStates, peerRequestsPartial) ->
-            SequencesKt.asSequence(
-                buildMetadataOnlyActions(peerStates, peerRequestsPartial, metadataBytes)
-                    .iterator());
+            buildMetadataOnlyActions(peerStates, peerRequestsPartial, metadataBytes).stream()
+                .map(
+                    entry ->
+                        (Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>)
+                            new AbstractMap.SimpleEntry<>(entry.getKey(), entry.getValue()));
 
-    return SafeFuture.of(gossip.publishPartial(topic, groupId, actionsFn)).thenApply(__ -> null);
+    return SafeFuture.of(partialGossip.publishPartial(topic, groupId, actionsFn));
   }
 
   // ---------------------------------------------------------------------------
   // Action builders
   // ---------------------------------------------------------------------------
 
-  private List<Pair<PeerId, PublishAction<PartialDataColumnPeerState>>> buildReactiveActions(
+  private List<Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>> buildReactiveActions(
       final Bytes32 blockRoot,
       final int columnIndex,
       final Map<PeerId, ? extends PartialDataColumnPeerState> peerStates,
-      final Function1<? super PeerId, Boolean> peerRequestsPartial) {
+      final Function<PeerId, Boolean> peerRequestsPartial) {
 
     final Optional<PartialDataColumnLocalCellStore.ColumnEntry> maybeEntry =
         cellStore.get(blockRoot, columnIndex);
@@ -144,28 +144,26 @@ public class PartialDataColumnSidecarPublisher {
         maybeEntry.map(e -> (BitSet) e.available().clone()).orElseGet(BitSet::new);
     final byte[] metadataBytes = buildMetadataBytes(available);
 
-    final List<Pair<PeerId, PublishAction<PartialDataColumnPeerState>>> actions = new ArrayList<>();
+    final List<Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>> actions =
+        new ArrayList<>();
 
     for (final Map.Entry<PeerId, ? extends PartialDataColumnPeerState> entry :
         peerStates.entrySet()) {
       final PeerId peerId = entry.getKey();
       final PartialDataColumnPeerState state = entry.getValue();
 
-      if (!peerRequestsPartial.invoke(peerId)) {
+      if (!peerRequestsPartial.apply(peerId)) {
         continue;
       }
 
-      // Cells the peer has requested that we haven't sent yet
       final BitSet toSend = (BitSet) state.cellsRequestedByPeer().clone();
-      toSend.and(available); // only cells we actually have
-      toSend.andNot(state.cellsSentToPeer()); // exclude already-sent cells
+      toSend.and(available);
+      toSend.andNot(state.cellsSentToPeer());
 
       if (toSend.isEmpty() && !state.isFirstMessage()) {
-        // Nothing new to send to this peer
         continue;
       }
 
-      // Build partial sidecar
       final Optional<byte[]> maybeSidecarBytes =
           buildPartialSidecarBytes(blockRoot, columnIndex, toSend, state, maybeHeader, maybeEntry);
 
@@ -173,7 +171,7 @@ public class PartialDataColumnSidecarPublisher {
           state.withCellsSent(toSend).withUpdatedMetadata(buildEmptyMetadata());
 
       actions.add(
-          new Pair<>(
+          new AbstractMap.SimpleEntry<>(
               peerId,
               new PublishAction<>(maybeSidecarBytes.orElse(null), metadataBytes, nextState, null)));
     }
@@ -181,18 +179,21 @@ public class PartialDataColumnSidecarPublisher {
     return actions;
   }
 
-  private List<Pair<PeerId, PublishAction<PartialDataColumnPeerState>>> buildMetadataOnlyActions(
-      final Map<PeerId, ? extends PartialDataColumnPeerState> peerStates,
-      final Function1<? super PeerId, Boolean> peerRequestsPartial,
-      final byte[] metadataBytes) {
+  private List<Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>>
+      buildMetadataOnlyActions(
+          final Map<PeerId, ? extends PartialDataColumnPeerState> peerStates,
+          final Function<PeerId, Boolean> peerRequestsPartial,
+          final byte[] metadataBytes) {
 
-    final List<Pair<PeerId, PublishAction<PartialDataColumnPeerState>>> actions = new ArrayList<>();
+    final List<Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>> actions =
+        new ArrayList<>();
     for (final Map.Entry<PeerId, ? extends PartialDataColumnPeerState> entry :
         peerStates.entrySet()) {
       final PeerId peerId = entry.getKey();
-      if (peerRequestsPartial.invoke(peerId)) {
-        // Send metadata only — no partialMessage payload
-        actions.add(new Pair<>(peerId, new PublishAction<>(null, metadataBytes, null, null)));
+      if (peerRequestsPartial.apply(peerId)) {
+        actions.add(
+            new AbstractMap.SimpleEntry<>(
+                peerId, new PublishAction<>(null, metadataBytes, null, null)));
       }
     }
     return actions;
@@ -214,13 +215,11 @@ public class PartialDataColumnSidecarPublisher {
       return Optional.empty();
     }
 
-    // Determine cells/proofs to include
     final List<Cell> cells = new ArrayList<>();
     final List<SszKZGProof> proofs = new ArrayList<>();
 
     if (maybeEntry.isPresent() && !toSend.isEmpty()) {
       final PartialDataColumnLocalCellStore.ColumnEntry entry = maybeEntry.get();
-      // Map from blob index to entry index
       int entryIndex = 0;
       for (int blobIndex = entry.available().nextSetBit(0);
           blobIndex >= 0;
@@ -233,7 +232,6 @@ public class PartialDataColumnSidecarPublisher {
       }
     }
 
-    // Build bitmap
     final int bitmapSize = Math.max(toSend.length(), 1);
     final int[] setBits = toSend.stream().toArray();
     final var bitmap =
@@ -243,7 +241,6 @@ public class PartialDataColumnSidecarPublisher {
     final var cellsList = sidecarSchema.getPartialColumnSchema().createFromElements(cells);
     final var proofsList = sidecarSchema.getKzgProofsSchema().createFromElements(proofs);
 
-    // Include header for peers that haven't messaged us yet (eager-push §9.1)
     final var headerList =
         state.isFirstMessage() && maybeHeader.isPresent()
             ? sidecarSchema.getHeaderSchema().createFromElements(List.of(maybeHeader.get()))
@@ -255,7 +252,6 @@ public class PartialDataColumnSidecarPublisher {
   }
 
   private byte[] buildMetadataBytes(final BitSet available) {
-    // available bits = cells we have; requests = empty (we're not requesting from peers here)
     final int size = Math.max(available.length(), 1);
     final PartialDataColumnPartsMetadata metadata =
         metadataSchema.create(

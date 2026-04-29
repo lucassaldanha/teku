@@ -24,8 +24,6 @@ import static org.mockito.Mockito.when;
 
 import com.google.protobuf.ByteString;
 import io.libp2p.core.PeerId;
-import io.libp2p.pubsub.gossip.partialmessages.FeedbackKind;
-import io.libp2p.pubsub.gossip.partialmessages.PartialMessagesPeerFeedback;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -37,6 +35,8 @@ import pubsub.pb.Rpc;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.infrastructure.async.StubAsyncRunner;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.FeedbackKind;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialMessagesPeerFeedback;
 import tech.pegasys.teku.spec.Spec;
 import tech.pegasys.teku.spec.SpecMilestone;
 import tech.pegasys.teku.spec.TestSpecFactory;
