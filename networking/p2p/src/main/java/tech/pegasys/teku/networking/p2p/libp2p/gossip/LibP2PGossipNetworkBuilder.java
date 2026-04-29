@@ -127,7 +127,8 @@ public class LibP2PGossipNetworkBuilder {
 
     builder.setParams(gossipParams);
     builder.setScoreParams(scoreParams);
-    builder.setProtocol(PubsubProtocol.Gossip_V_1_2);
+    builder.setProtocol(
+        partialMessagesEnabled ? PubsubProtocol.Gossip_V_1_3 : PubsubProtocol.Gossip_V_1_2);
     builder.setSubscriptionTopicSubscriptionFilter(subscriptionFilter);
     builder.setSeenCache(seenCache);
     builder.setMessageFactory(
