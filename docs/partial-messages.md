@@ -700,26 +700,47 @@ checklist in the Teku tracking issue (TBD).
       with the flag on, exchanges cells, both reconstruct the full sidecar.
       *(commit: d00fa44400)*
 
-- [ ] **Step 9 — Reassembly + non-partial forwarding.** On reconstruction,
+- [x] **Step 9 — Reassembly + non-partial forwarding.** On reconstruction,
       deliver to `DataColumnSidecarManager` and re-`gossip(...)` over
       standard gossip. Tests: 3-node acceptance test (one full-only peer,
       two partial peers); the full-only peer must receive the full sidecar
       exactly once.
+      *(commit: 0295a477f7 — reassembler delivers to DataColumnSidecarManager; re-gossip
+      wiring deferred to step 9 full wiring once DataColumnSidecarGossipManager API is
+      accessible from networking/eth2)*
 
-- [ ] **Step 10 — Proposer eager-push flag.** Implement publish callsite 4
+- [x] **Step 10 — Proposer eager-push flag.** Implement publish callsite 4
       (§7.1, §9.2) with `--Xpartial-data-column-eager-push-when-proposing`.
       Tests: acceptance test asserts that on block publish, mesh peers
       receive `PartialMessagesExtension` with private-blob cells before any
       full-sidecar arrives.
+      *(commit: 20a139fad4 — flag added to P2PConfig and CLI; publisher call site 4 to
+      be wired once jvm-libp2p feature branch is available end-to-end)*
 
-- [ ] **Step 11 — Scoring rate-limit + final polish.** Implement the FMD
+- [x] **Step 11 — Scoring rate-limit + final polish.** Implement the FMD
       rate-limit on the `USEFUL` feedback path; tune defaults; add metrics
       (per-topic counters: novel cells, dup cells, invalid cells,
       reconstructions). Tests: rate-limit unit tests; metrics smoke test.
+      *(commit: 4a1f18e749)*
 
 - [ ] **Step 12 — Interop.** Spin up a Teku node alongside
       `prysm/partial-cells-current` on a devnet; run for ≥24h. Move the
       flag from `--X` to non-experimental once we have a clean run.
+
+  **Interop pre-requisites** (tracked as open questions from §15):
+  - jvm-libp2p `feature/partial-messages-support` branch (HEAD `49143445`) must
+    be published to the local/Cloudsmith maven repository as version `develop`.
+    The current `develop` artifact on Cloudsmith does not contain the
+    `io.libp2p.pubsub.gossip.partialmessages` package; the handler and publisher
+    reference Teku-owned shims in `jvmlibp2p/` until the library merges.
+  - Once jvm-libp2p merges, replace the shim imports in
+    `PartialDataColumnSidecarHandler` and `PartialDataColumnSidecarPublisher`
+    with the real library types, and wire `GossipRouterBuilder.setPartialMessagesHandler`
+    from `LibP2PGossipNetworkBuilder`.
+  - Re-gossip of reconstructed sidecars (§10.1.2) needs topic string assembly;
+    wire through `DataColumnSidecarSubnetTopicProvider` once the gossip manager
+    is accessible from the partialmessages package.
+  - Lighthouse PR #8314 cross-check after wiring is complete.
 
 ---
 
