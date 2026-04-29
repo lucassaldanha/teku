@@ -472,6 +472,19 @@ public class P2POptions {
       P2PConfig.DEFAULT_PARTIAL_DATA_COLUMN_GOSSIP_ENABLED;
 
   @Option(
+      names = {"--Xpartial-data-column-eager-push-when-proposing"},
+      paramLabel = "<BOOLEAN>",
+      showDefaultValue = Visibility.ALWAYS,
+      description =
+          "When proposing a block, eagerly push cells of private blobs to mesh peers via partial"
+              + " messages. Ignored unless --Xpartial-data-column-sidecar-gossip-enabled is true.",
+      arity = "0..1",
+      hidden = true,
+      fallbackValue = "true")
+  private boolean partialDataColumnEagerPushEnabled =
+      P2PConfig.DEFAULT_PARTIAL_DATA_COLUMN_EAGER_PUSH_ENABLED;
+
+  @Option(
       names = {"--Xpeer-request-limit"},
       paramLabel = "<NUMBER>",
       description =
@@ -724,6 +737,7 @@ public class P2POptions {
                   .historicalDataMaxQueryQueueSize(historicalDataMaxQueryQueueSize)
                   .executionProofTopicEnabled(executionProofTopicEnabled)
                   .partialDataColumnGossipEnabled(partialDataColumnGossipEnabled)
+                  .partialDataColumnEagerPushEnabled(partialDataColumnEagerPushEnabled)
                   .reworkedSidecarRecoveryTimeout(sidecarCancelTimeoutMs)
                   .reworkedSidecarDownloadTimeout(sidecarDownloadTimeoutMs)
                   .reworkedSidecarSyncPollPeriod(reworkedSidecarCustodySyncPollPeriodSeconds)

@@ -70,6 +70,7 @@ public class P2PConfig {
   public static final int DEFAULT_HISTORICAL_MAX_QUERY_QUEUE_SIZE = 500;
   public static final boolean DEFAULT_EXECUTION_PROOF_GOSSIP_ENABLED = false;
   public static final boolean DEFAULT_PARTIAL_DATA_COLUMN_GOSSIP_ENABLED = false;
+  public static final boolean DEFAULT_PARTIAL_DATA_COLUMN_EAGER_PUSH_ENABLED = false;
 
   public static final int DEFAULT_MIN_BID_INCREMENT_PERCENTAGE = 1;
 
@@ -104,6 +105,7 @@ public class P2PConfig {
   private final boolean columnsDataAvailabilityHalfCheckEnabled;
   private final boolean executionProofTopicEnabled;
   private final boolean partialDataColumnGossipEnabled;
+  private final boolean partialDataColumnEagerPushEnabled;
   private final boolean subscribeAllCustodySubnetsEnabled;
   private final int minBidIncrementPercentage;
 
@@ -137,6 +139,7 @@ public class P2PConfig {
       final boolean columnsDataAvailabilityHalfCheckEnabled,
       final boolean executionProofTopicEnabled,
       final boolean partialDataColumnGossipEnabled,
+      final boolean partialDataColumnEagerPushEnabled,
       final boolean subscribeAllCustodySubnetsEnabled,
       final int minBidIncrementPercentage) {
     this.spec = spec;
@@ -169,6 +172,7 @@ public class P2PConfig {
     this.columnsDataAvailabilityHalfCheckEnabled = columnsDataAvailabilityHalfCheckEnabled;
     this.executionProofTopicEnabled = executionProofTopicEnabled;
     this.partialDataColumnGossipEnabled = partialDataColumnGossipEnabled;
+    this.partialDataColumnEagerPushEnabled = partialDataColumnEagerPushEnabled;
     this.subscribeAllCustodySubnetsEnabled = subscribeAllCustodySubnetsEnabled;
     this.minBidIncrementPercentage = minBidIncrementPercentage;
   }
@@ -273,6 +277,10 @@ public class P2PConfig {
     return partialDataColumnGossipEnabled;
   }
 
+  public boolean isPartialDataColumnEagerPushEnabled() {
+    return partialDataColumnEagerPushEnabled;
+  }
+
   public boolean isGossipBlobsAfterBlockEnabled() {
     return isGossipBlobsAfterBlockEnabled;
   }
@@ -339,6 +347,8 @@ public class P2PConfig {
     private boolean gossipBlobsAfterBlockEnabled = DEFAULT_GOSSIP_BLOBS_AFTER_BLOCK_ENABLED;
     private boolean executionProofTopicEnabled = DEFAULT_EXECUTION_PROOF_GOSSIP_ENABLED;
     private boolean partialDataColumnGossipEnabled = DEFAULT_PARTIAL_DATA_COLUMN_GOSSIP_ENABLED;
+    private boolean partialDataColumnEagerPushEnabled =
+        DEFAULT_PARTIAL_DATA_COLUMN_EAGER_PUSH_ENABLED;
     private Integer reworkedSidecarRecoveryTimeout = DEFAULT_RECOVERY_TIMEOUT_MS;
     private Integer reworkedSidecarDownloadTimeout = DEFAULT_DOWNLOAD_TIMEOUT_MS;
 
@@ -422,6 +432,7 @@ public class P2PConfig {
           columnsDataAvailabilityHalfCheckEnabled,
           executionProofTopicEnabled,
           partialDataColumnGossipEnabled,
+          partialDataColumnEagerPushEnabled,
           subscribeAllCustodySubnetsEnabled,
           minBidIncrementPercentage);
     }
@@ -595,6 +606,12 @@ public class P2PConfig {
 
     public Builder partialDataColumnGossipEnabled(final boolean partialDataColumnGossipEnabled) {
       this.partialDataColumnGossipEnabled = partialDataColumnGossipEnabled;
+      return this;
+    }
+
+    public Builder partialDataColumnEagerPushEnabled(
+        final boolean partialDataColumnEagerPushEnabled) {
+      this.partialDataColumnEagerPushEnabled = partialDataColumnEagerPushEnabled;
       return this;
     }
 
