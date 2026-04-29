@@ -24,6 +24,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import tech.pegasys.teku.ethereum.events.SlotEventsChannel;
@@ -45,6 +47,7 @@ import tech.pegasys.teku.networking.eth2.gossip.forks.versions.GossipForkSubscri
 import tech.pegasys.teku.networking.eth2.gossip.forks.versions.GossipForkSubscriptionsGloas;
 import tech.pegasys.teku.networking.eth2.gossip.forks.versions.GossipForkSubscriptionsGloasBpo;
 import tech.pegasys.teku.networking.eth2.gossip.forks.versions.GossipForkSubscriptionsPhase0;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnSidecarHandler;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.AttestationSubnetTopicProvider;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.DataColumnSidecarSubnetTopicProvider;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.NodeIdToDataColumnSidecarSubnetsCalculator;
@@ -114,6 +117,8 @@ import tech.pegasys.teku.storage.store.KeyValueStore;
  */
 public class Eth2P2PNetworkBuilder {
 
+  private static final Logger LOG = LogManager.getLogger();
+
   public static final Duration DEFAULT_ETH2_RPC_PING_INTERVAL = Duration.ofSeconds(10);
   public static final int DEFAULT_ETH2_RPC_OUTSTANDING_PING_THRESHOLD = 2;
   public static final Duration DEFAULT_ETH2_STATUS_UPDATE_INTERVAL = Duration.ofMinutes(5);
@@ -161,6 +166,8 @@ public class Eth2P2PNetworkBuilder {
   private DasReqRespLogger dasReqRespLogger;
   private Supplier<Boolean> isSuperNodeSupplier;
   private DataColumnSidecarArchiveReconstructor dataColumnSidecarArchiveReconstructor;
+  protected Optional<PartialDataColumnSidecarHandler> partialDataColumnSidecarHandler =
+      Optional.empty();
 
   protected Eth2P2PNetworkBuilder() {}
 
@@ -542,8 +549,14 @@ public class Eth2P2PNetworkBuilder {
             .gossipTopicFilter(gossipTopicsFilter)
             .timeProvider(timeProvider)
             .recordMessageArrival(recordMessageArrival)
-            .partialMessagesEnabled(config.isPartialDataColumnGossipEnabled())
+            .partialMessagesEnabled(config.isPartialMessagesEnabled())
             .build();
+
+    partialDataColumnSidecarHandler.ifPresent(
+        handler ->
+            LOG.debug(
+                "Partial messages handler registered; will be wired to GossipRouter when"
+                    + " jvm-libp2p feature branch is available"));
 
     final AttestationSubnetTopicProvider attestationSubnetTopicProvider =
         new AttestationSubnetTopicProvider(
@@ -898,6 +911,12 @@ public class Eth2P2PNetworkBuilder {
   public Eth2P2PNetworkBuilder dataColumnSidecarArchiveReconstructor(
       final DataColumnSidecarArchiveReconstructor dataColumnSidecarArchiveReconstructor) {
     this.dataColumnSidecarArchiveReconstructor = dataColumnSidecarArchiveReconstructor;
+    return this;
+  }
+
+  public Eth2P2PNetworkBuilder partialDataColumnSidecarHandler(
+      final Optional<PartialDataColumnSidecarHandler> handler) {
+    this.partialDataColumnSidecarHandler = handler;
     return this;
   }
 }

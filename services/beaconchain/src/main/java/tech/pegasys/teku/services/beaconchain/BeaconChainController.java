@@ -92,6 +92,12 @@ import tech.pegasys.teku.networking.eth2.gossip.BlockGossipChannel;
 import tech.pegasys.teku.networking.eth2.gossip.DataColumnSidecarGossipChannel;
 import tech.pegasys.teku.networking.eth2.gossip.ExecutionPayloadGossipChannel;
 import tech.pegasys.teku.networking.eth2.gossip.ExecutionProofGossipChannel;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnHeaderCache;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnLocalCellStore;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnReassembler;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnSidecarHandler;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnSidecarPublisher;
+import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialGossip;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.AllSubnetsSubscriber;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.AllSyncCommitteeSubscriptions;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.AttestationTopicSubscriber;
@@ -119,6 +125,8 @@ import tech.pegasys.teku.spec.config.SpecConfigDeneb;
 import tech.pegasys.teku.spec.config.SpecConfigFulu;
 import tech.pegasys.teku.spec.datastructures.attestation.ValidatableAttestation;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.deneb.BlobSidecar;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata.PartialDataColumnPartsMetadataSchema;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarSchemaFulu;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlock;
 import tech.pegasys.teku.spec.datastructures.blocks.blockbody.BeaconBlockBodySchema;
 import tech.pegasys.teku.spec.datastructures.blocks.blockbody.versions.capella.BeaconBlockBodySchemaCapella;
@@ -249,6 +257,8 @@ import tech.pegasys.teku.statetransition.validation.ExecutionPayloadGossipValida
 import tech.pegasys.teku.statetransition.validation.ExecutionProofGossipValidator;
 import tech.pegasys.teku.statetransition.validation.GossipValidationHelper;
 import tech.pegasys.teku.statetransition.validation.InternalValidationResult;
+import tech.pegasys.teku.statetransition.validation.PartialDataColumnHeaderGossipValidator;
+import tech.pegasys.teku.statetransition.validation.PartialDataColumnSidecarGossipValidator;
 import tech.pegasys.teku.statetransition.validation.ProposerPreferencesGossipValidator;
 import tech.pegasys.teku.statetransition.validation.ProposerSlashingValidator;
 import tech.pegasys.teku.statetransition.validation.SignedBlsToExecutionChangeValidator;
@@ -391,6 +401,8 @@ public class BeaconChainController extends Service implements BeaconChainControl
   protected volatile BlobSidecarGossipValidator blobSidecarValidator;
   protected volatile DataColumnSidecarGossipValidator dataColumnSidecarGossipValidator;
   protected volatile DataColumnSidecarManager dataColumnSidecarManager;
+  protected volatile Optional<PartialDataColumnSidecarHandler> partialDataColumnSidecarHandler =
+      Optional.empty();
   protected volatile ProposerPreferencesManager proposerPreferencesManager;
   protected volatile ExecutionPayloadBidManager executionPayloadBidManager;
   protected volatile ExecutionPayloadManager executionPayloadManager;
@@ -692,6 +704,7 @@ public class BeaconChainController extends Service implements BeaconChainControl
     initBlobSidecarManager();
     initDasSamplerManager();
     initDataColumnSidecarManager();
+    initPartialDataColumnSidecarHandler();
     initZkChain();
     initForkChoiceStateProvider();
     initForkChoiceNotifier();
@@ -913,6 +926,55 @@ public class BeaconChainController extends Service implements BeaconChainControl
     } else {
       dataColumnSidecarManager = DataColumnSidecarManager.NOOP;
     }
+  }
+
+  protected void initPartialDataColumnSidecarHandler() {
+    if (!beaconConfig.p2pConfig().isPartialMessagesEnabled()
+        || !spec.isMilestoneSupported(SpecMilestone.FULU)) {
+      return;
+    }
+    LOG.debug("Initialising partial data column sidecar handler");
+
+    final SchemaDefinitionsFulu schemaFulu =
+        SchemaDefinitionsFulu.required(
+            spec.forMilestone(SpecMilestone.FULU).getSchemaDefinitions());
+    final PartialDataColumnPartsMetadataSchema metadataSchema =
+        schemaFulu.getPartialDataColumnPartsMetadataSchema();
+    final PartialDataColumnSidecarSchemaFulu sidecarSchema =
+        schemaFulu.getPartialDataColumnSidecarSchema();
+
+    final PartialDataColumnHeaderCache headerCache =
+        PartialDataColumnHeaderCache.create(spec.getGenesisSpec().getSlotsPerEpoch() * 2);
+    final PartialDataColumnLocalCellStore cellStore =
+        PartialDataColumnLocalCellStore.create(spec.getGenesisSpec().getSlotsPerEpoch() * 2);
+
+    final var headerValidator =
+        PartialDataColumnHeaderGossipValidator.create(
+            spec, invalidBlockRoots, gossipValidationHelper, headerCache.asMap());
+    final var cellValidator =
+        new PartialDataColumnSidecarGossipValidator(
+            spec, gossipValidationHelper, headerCache.asMap());
+
+    final var reassembler =
+        new PartialDataColumnReassembler(spec, headerCache, dataColumnSidecarManager, null);
+
+    @SuppressWarnings("unused")
+    final var publisher =
+        new PartialDataColumnSidecarPublisher(
+            PartialGossip.NOOP, headerCache, cellStore, sidecarSchema, metadataSchema);
+
+    partialDataColumnSidecarHandler =
+        Optional.of(
+            new PartialDataColumnSidecarHandler(
+                networkAsyncRunner,
+                headerValidator,
+                cellValidator,
+                cellStore,
+                metadataSchema,
+                sidecarSchema,
+                reassembler));
+
+    LOG.info("Partial data column sidecar handler initialised (partial-messages feature enabled)");
   }
 
   protected void initProposerPreferencesManager() {
@@ -1989,6 +2051,7 @@ public class BeaconChainController extends Service implements BeaconChainControl
             .gossipedBlobSidecarProcessor(blobSidecarManager::validateAndPrepareForBlockImport)
             .gossipedDataColumnSidecarOperationProcessor(
                 dataColumnSidecarManager::onDataColumnSidecarGossip)
+            .partialDataColumnSidecarHandler(partialDataColumnSidecarHandler)
             .gossipedExecutionProofOperationProcessor(
                 executionProofManager::onReceivedExecutionProofGossip)
             .gossipedAttestationProcessor(attestationManager::addAttestation)

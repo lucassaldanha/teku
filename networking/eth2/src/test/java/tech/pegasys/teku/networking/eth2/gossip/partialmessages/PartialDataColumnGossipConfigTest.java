@@ -24,7 +24,7 @@ class PartialDataColumnGossipConfigTest {
 
   @Test
   void defaultValueIsFalse() {
-    assertThat(P2PConfig.DEFAULT_PARTIAL_DATA_COLUMN_GOSSIP_ENABLED).isFalse();
+    assertThat(P2PConfig.DEFAULT_PARTIAL_MESSAGES_ENABLED).isFalse();
   }
 
   @Test
@@ -32,10 +32,10 @@ class PartialDataColumnGossipConfigTest {
     final P2PConfig config =
         P2PConfig.builder()
             .specProvider(TestSpecFactory.createMinimalFulu())
-            .partialDataColumnGossipEnabled(true)
+            .partialMessagesEnabled(true)
             .build();
 
-    assertThat(config.isPartialDataColumnGossipEnabled()).isTrue();
+    assertThat(config.isPartialMessagesEnabled()).isTrue();
   }
 
   @Test
@@ -43,6 +43,6 @@ class PartialDataColumnGossipConfigTest {
     final P2PConfig config =
         P2PConfig.builder().specProvider(TestSpecFactory.createMinimalFulu()).build();
 
-    assertThat(config.isPartialDataColumnGossipEnabled()).isFalse();
+    assertThat(config.isPartialMessagesEnabled()).isFalse();
   }
 }

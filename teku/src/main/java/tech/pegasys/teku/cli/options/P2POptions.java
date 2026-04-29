@@ -459,7 +459,7 @@ public class P2POptions {
   private boolean executionProofTopicEnabled = P2PConfig.DEFAULT_EXECUTION_PROOF_GOSSIP_ENABLED;
 
   @Option(
-      names = {"--Xpartial-data-column-sidecar-gossip-enabled"},
+      names = {"--Xp2p-partial-messages-enabled"},
       paramLabel = "<BOOLEAN>",
       showDefaultValue = Visibility.ALWAYS,
       description =
@@ -468,21 +468,20 @@ public class P2POptions {
       arity = "0..1",
       hidden = true,
       fallbackValue = "true")
-  private boolean partialDataColumnGossipEnabled =
-      P2PConfig.DEFAULT_PARTIAL_DATA_COLUMN_GOSSIP_ENABLED;
+  private boolean partialMessagesEnabled = P2PConfig.DEFAULT_PARTIAL_MESSAGES_ENABLED;
 
   @Option(
-      names = {"--Xpartial-data-column-eager-push-when-proposing"},
+      names = {"--Xp2p-partial-messages-eager-push-enabled"},
       paramLabel = "<BOOLEAN>",
       showDefaultValue = Visibility.ALWAYS,
       description =
           "When proposing a block, eagerly push cells of private blobs to mesh peers via partial"
-              + " messages. Ignored unless --Xpartial-data-column-sidecar-gossip-enabled is true.",
+              + " messages. Ignored unless --Xp2p-partial-messages-enabled is true.",
       arity = "0..1",
       hidden = true,
       fallbackValue = "true")
-  private boolean partialDataColumnEagerPushEnabled =
-      P2PConfig.DEFAULT_PARTIAL_DATA_COLUMN_EAGER_PUSH_ENABLED;
+  private boolean partialMessagesEagerPushEnabled =
+      P2PConfig.DEFAULT_PARTIAL_MESSAGES_EAGER_PUSH_ENABLED;
 
   @Option(
       names = {"--Xpeer-request-limit"},
@@ -736,8 +735,8 @@ public class P2POptions {
                   .historicalDataMaxConcurrentQueries(historicalDataMaxConcurrentQueries)
                   .historicalDataMaxQueryQueueSize(historicalDataMaxQueryQueueSize)
                   .executionProofTopicEnabled(executionProofTopicEnabled)
-                  .partialDataColumnGossipEnabled(partialDataColumnGossipEnabled)
-                  .partialDataColumnEagerPushEnabled(partialDataColumnEagerPushEnabled)
+                  .partialMessagesEnabled(partialMessagesEnabled)
+                  .partialMessagesEagerPushEnabled(partialMessagesEagerPushEnabled)
                   .reworkedSidecarRecoveryTimeout(sidecarCancelTimeoutMs)
                   .reworkedSidecarDownloadTimeout(sidecarDownloadTimeoutMs)
                   .reworkedSidecarSyncPollPeriod(reworkedSidecarCustodySyncPollPeriodSeconds)
