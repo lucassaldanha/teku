@@ -68,6 +68,8 @@ public class PartialDataColumnSidecarHandler
   private final PartialDataColumnSidecarSchemaFulu sidecarSchema;
   private final ReconstructionListener reconstructionListener;
 
+  private volatile Optional<PartialDataColumnSidecarPublisher> publisher = Optional.empty();
+
   /**
    * Callback invoked when all cells for a {@code (blockRoot, columnIndex)} pair have been received.
    * Step 9 will replace this with the actual reconstruction + forwarding logic.
@@ -93,6 +95,10 @@ public class PartialDataColumnSidecarHandler
     this.metadataSchema = metadataSchema;
     this.sidecarSchema = sidecarSchema;
     this.reconstructionListener = reconstructionListener;
+  }
+
+  public void setPublisher(final PartialDataColumnSidecarPublisher publisher) {
+    this.publisher = Optional.of(publisher);
   }
 
   /**
@@ -176,7 +182,6 @@ public class PartialDataColumnSidecarHandler
                     error));
   }
 
-  /** Stubbed — heartbeat-driven metadata republish will be implemented in Step 7. */
   @Override
   public void onEmitGossip(
       final String topic,
@@ -185,10 +190,24 @@ public class PartialDataColumnSidecarHandler
       final Map<PeerId, ? extends PartialDataColumnPeerState> peerStates,
       final PartialMessagesPeerFeedback feedback) {
     LOG.trace(
-        "onEmitGossip for topic={} groupId={} peers={}; publisher not yet implemented (step 7)",
-        topic,
-        groupId,
-        gossipPeers.size());
+        "onEmitGossip: topic={} groupId={} gossipPeers={}", topic, groupId, gossipPeers.size());
+
+    if (publisher.isEmpty()) {
+      return;
+    }
+    if (groupId.length != GROUP_ID_LENGTH || groupId[0] != SUPPORTED_VERSION_BYTE) {
+      return;
+    }
+    final Bytes32 blockRoot = Bytes32.wrap(groupId, 1);
+    final int columnIndex = extractColumnIndex(topic);
+    if (columnIndex < 0) {
+      return;
+    }
+
+    final PartialDataColumnSidecarPublisher p = publisher.get();
+    asyncRunner
+        .runAsync(() -> p.publishMetadataToGossipPeers(topic, blockRoot, columnIndex, gossipPeers))
+        .finish(error -> LOG.error("Error in publishMetadataToGossipPeers", error));
   }
 
   // ---------------------------------------------------------------------------
@@ -299,6 +318,13 @@ public class PartialDataColumnSidecarHandler
             columnIndex,
             novelBlobIndices);
         feedback.reportFeedback(topicId, from, FeedbackKind.USEFUL);
+
+        // Forward novel cells to other peers that have requested them
+        publisher.ifPresent(
+            p ->
+                p.publishReactive(topicId, blockRoot, columnIndex, peerStates)
+                    .finish(
+                        error -> LOG.error("Error in publishReactive after cell merge", error)));
 
         // d. Check if reconstruction is possible
         cellStore

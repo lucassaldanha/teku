@@ -18,10 +18,12 @@ import io.libp2p.pubsub.gossip.partialmessages.PublishAction;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes32;
@@ -29,6 +31,7 @@ import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialGossip;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PublishActionsFn;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.Cell;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumnSidecarFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnHeaderFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata.PartialDataColumnPartsMetadataSchema;
@@ -149,6 +152,92 @@ public class PartialDataColumnSidecarPublisher {
                             new AbstractMap.SimpleEntry<>(entry.getKey(), entry.getValue()));
 
     return SafeFuture.of(partialGossip.publishPartial(topic, groupId, actionsFn));
+  }
+
+  /**
+   * Sends metadata to ALL partial-capable mesh peers for this topic/group (call site: heartbeat
+   * onEmitGossip). Unlike {@link #publishMetadataOnly}, this includes peers not yet tracked in the
+   * group state by initialising them with {@link PartialDataColumnPeerState#initial()}.
+   */
+  public SafeFuture<Void> publishMetadataToGossipPeers(
+      final String topic,
+      final Bytes32 blockRoot,
+      final int columnIndex,
+      final Collection<PeerId> gossipPeers) {
+    final byte[] groupId = buildGroupId(blockRoot);
+    final BitSet available = cellStore.getAvailableBitSet(blockRoot, columnIndex);
+    LOG.debug(
+        "publishMetadataToGossipPeers: topic={} blockRoot={} column={} peers={} available={}",
+        topic,
+        blockRoot,
+        columnIndex,
+        gossipPeers.size(),
+        available.cardinality());
+    final byte[] metadataBytes = buildMetadataBytes(available);
+
+    final PublishActionsFn<PartialDataColumnPeerState> actionsFn =
+        (livePeerStates, peerRequestsPartial) -> {
+          final List<Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>> actions =
+              new ArrayList<>();
+          for (final Map.Entry<PeerId, ? extends PartialDataColumnPeerState> entry :
+              livePeerStates.entrySet()) {
+            if (peerRequestsPartial.apply(entry.getKey())) {
+              actions.add(
+                  new AbstractMap.SimpleEntry<>(
+                      entry.getKey(), new PublishAction<>(null, metadataBytes, null, null)));
+            }
+          }
+          for (final PeerId peerId : gossipPeers) {
+            if (!livePeerStates.containsKey(peerId) && peerRequestsPartial.apply(peerId)) {
+              // New peer: initialise state so jvm-libp2p tracks it in the group
+              actions.add(
+                  new AbstractMap.SimpleEntry<>(
+                      peerId,
+                      new PublishAction<>(
+                          null, metadataBytes, PartialDataColumnPeerState.initial(), null)));
+            }
+          }
+          return actions.stream();
+        };
+    return SafeFuture.of(partialGossip.publishPartial(topic, groupId, actionsFn));
+  }
+
+  /**
+   * Called when this node proposes a block: stores all cells from {@code fullSidecar} in the local
+   * cell store and creates the partial-messages group. The next gossipsub heartbeat will fire
+   * {@link PartialDataColumnSidecarHandler#onEmitGossip} which announces availability to peers.
+   */
+  public SafeFuture<Void> eagerPushFromProposer(
+      final String topic, final DataColumnSidecarFulu fullSidecar) {
+    final Bytes32 blockRoot = fullSidecar.getSignedBlockHeader().getMessage().hashTreeRoot();
+    final int columnIndex = fullSidecar.getIndex().intValue();
+    final int numCells = fullSidecar.getColumn().size();
+
+    LOG.debug(
+        "eagerPushFromProposer: topic={} blockRoot={} column={} cells={}",
+        topic,
+        blockRoot,
+        columnIndex,
+        numCells);
+
+    if (numCells > 0) {
+      final int[] allBits = IntStream.range(0, numCells).toArray();
+      final var bitmap = sidecarSchema.getCellsPresentBitmapSchema().ofBits(numCells, allBits);
+      final var cells =
+          sidecarSchema
+              .getPartialColumnSchema()
+              .createFromElements(fullSidecar.getColumn().asList());
+      final var proofs =
+          sidecarSchema
+              .getKzgProofsSchema()
+              .createFromElements(fullSidecar.getKzgProofs().asList());
+      final var emptyHeader = sidecarSchema.getHeaderSchema().createFromElements(List.of());
+      cellStore.merge(
+          blockRoot, columnIndex, sidecarSchema.create(bitmap, cells, proofs, emptyHeader));
+    }
+
+    // Creates the partial-messages group; peers will be notified on the next heartbeat
+    return publishMetadataOnly(topic, blockRoot, columnIndex);
   }
 
   // ---------------------------------------------------------------------------

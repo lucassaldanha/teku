@@ -92,6 +92,7 @@ import tech.pegasys.teku.networking.eth2.gossip.BlockGossipChannel;
 import tech.pegasys.teku.networking.eth2.gossip.DataColumnSidecarGossipChannel;
 import tech.pegasys.teku.networking.eth2.gossip.ExecutionPayloadGossipChannel;
 import tech.pegasys.teku.networking.eth2.gossip.ExecutionProofGossipChannel;
+import tech.pegasys.teku.networking.eth2.gossip.encoding.GossipEncoding;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnHeaderCache;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnLocalCellStore;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.PartialDataColumnReassembler;
@@ -105,6 +106,7 @@ import tech.pegasys.teku.networking.eth2.gossip.subnets.DataColumnSidecarSubnetB
 import tech.pegasys.teku.networking.eth2.gossip.subnets.NodeBasedStableSubnetSubscriber;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.StableSubnetSubscriber;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.SyncCommitteeSubscriptionManager;
+import tech.pegasys.teku.networking.eth2.gossip.topics.GossipTopics;
 import tech.pegasys.teku.networking.eth2.mock.NoOpEth2P2PNetwork;
 import tech.pegasys.teku.networking.eth2.peers.DataColumnPeerManagerImpl;
 import tech.pegasys.teku.networking.eth2.peers.MetadataDasPeerCustodyTracker;
@@ -125,6 +127,7 @@ import tech.pegasys.teku.spec.config.SpecConfigDeneb;
 import tech.pegasys.teku.spec.config.SpecConfigFulu;
 import tech.pegasys.teku.spec.datastructures.attestation.ValidatableAttestation;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.deneb.BlobSidecar;
+import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.DataColumnSidecarFulu;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata.PartialDataColumnPartsMetadataSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarSchemaFulu;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlock;
@@ -2090,6 +2093,33 @@ public class BeaconChainController extends Service implements BeaconChainControl
     this.p2pNetwork = eth2NetworkBuilder.build();
     partialDataColumnSidecarPublisher.ifPresent(
         publisher -> publisher.setPartialGossip(eth2NetworkBuilder.getBuiltPartialGossip()));
+
+    // Wire publisher into handler so onEmitGossip and processAsync can forward cells
+    partialDataColumnSidecarHandler.ifPresent(
+        handler -> partialDataColumnSidecarPublisher.ifPresent(handler::setPublisher));
+
+    // Eager-push: when proposing, store cells and announce via partial messages
+    if (beaconConfig.p2pConfig().isPartialMessagesEagerPushEnabled()) {
+      partialDataColumnSidecarPublisher.ifPresent(
+          publisher ->
+              eventChannels.subscribe(
+                  DataColumnSidecarGossipChannel.class,
+                  (sidecar, origin) -> {
+                    if (origin == RemoteOrigin.LOCAL_PROPOSAL) {
+                      final DataColumnSidecarFulu fuluSidecar =
+                          DataColumnSidecarFulu.required(sidecar);
+                      final String topic =
+                          GossipTopics.getDataColumnSidecarSubnetTopic(
+                              recentChainData.getCurrentForkDigest().orElseThrow(),
+                              fuluSidecar.getIndex().intValue(),
+                              GossipEncoding.SSZ_SNAPPY);
+                      publisher
+                          .eagerPushFromProposer(topic, fuluSidecar)
+                          .finish(
+                              error -> LOG.error("Error in partial-messages eager push", error));
+                    }
+                  }));
+    }
 
     syncCommitteeMessagePool.subscribeOperationAdded(
         new LocalOperationAcceptedFilter<>(p2pNetwork::publishSyncCommitteeMessage));
