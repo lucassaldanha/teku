@@ -66,6 +66,12 @@ public class PartialDataColumnSidecarGossipValidator {
   public SafeFuture<InternalValidationResult> validate(
       final PartialDataColumnSidecarFulu sidecar, final Bytes32 blockRoot, final int columnIndex) {
 
+    LOG.trace(
+        "Validating {} PartialDataColumnSidecar cell(s) for blockRoot={} column={}",
+        sidecar.getCellsPresentBitmap().getBitCount(),
+        blockRoot,
+        columnIndex);
+
     /*
      * [IGNORE] No validated header for blockRoot is cached. Cell validation requires a header;
      * the message may be re-validated once a header arrives.

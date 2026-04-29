@@ -93,6 +93,8 @@ public class PartialDataColumnHeaderGossipValidator {
   public SafeFuture<InternalValidationResult> validate(
       final PartialDataColumnSidecarFulu sidecar, final Bytes32 blockRoot) {
 
+    LOG.trace("Validating PartialDataColumnHeader for blockRoot={}", blockRoot);
+
     /*
      * [REJECT] A header is present (not semantically empty).
      */
@@ -275,7 +277,7 @@ public class PartialDataColumnHeaderGossipValidator {
   }
 
   private InternalValidationResult accept() {
-    LOG.trace("PartialDataColumnHeader Gossip Validation: ACCEPT");
+    LOG.trace("PartialDataColumnHeader Gossip Validation: ACCEPT — header cached");
     return InternalValidationResult.ACCEPT;
   }
 }

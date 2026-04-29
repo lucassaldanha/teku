@@ -108,6 +108,13 @@ public class PartialDataColumnSidecarHandler
       final Rpc.PartialMessagesExtension rpc,
       final PartialMessagesPeerFeedback feedback) {
 
+    LOG.trace(
+        "onIncomingRpc: peer={} topic={} hasPartialMsg={} hasPartsMetadata={}",
+        from,
+        rpc.getTopicID(),
+        rpc.hasPartialMessage(),
+        rpc.hasPartsMetadata());
+
     // 1. Decode and validate groupId version byte
     final byte[] groupIdBytes = rpc.getGroupID().toByteArray();
     if (groupIdBytes.length != GROUP_ID_LENGTH || groupIdBytes[0] != SUPPORTED_VERSION_BYTE) {
@@ -136,6 +143,16 @@ public class PartialDataColumnSidecarHandler
     // 4. SSZ-decode partsMetadata and partialMessage (synchronous but cheap)
     final Optional<PartialDataColumnPartsMetadata> maybeMetadata = decodeMetadata(rpc);
     final Optional<PartialDataColumnSidecarFulu> maybeSidecar = decodeSidecar(rpc);
+
+    LOG.debug(
+        "Partial message received: peer={} blockRoot={} column={} hasHeader={} cellCount={}"
+            + " hasMetadata={}",
+        from,
+        blockRoot,
+        columnIndex,
+        maybeSidecar.map(s -> s.getOptionalHeader().isPresent()).orElse(false),
+        maybeSidecar.map(s -> s.getCellsPresentBitmap().getBitCount()).orElse(0),
+        maybeMetadata.isPresent());
 
     // 5. Dispatch real work to async runner
     asyncRunner
@@ -190,42 +207,63 @@ public class PartialDataColumnSidecarHandler
 
     // a. Validate header if present
     if (maybeSidecar.isPresent() && maybeSidecar.get().getOptionalHeader().isPresent()) {
+      LOG.trace(
+          "Validating partial message header from {} for blockRoot={} column={}",
+          from,
+          blockRoot,
+          columnIndex);
       final InternalValidationResult headerResult =
           headerValidator.validate(maybeSidecar.get(), blockRoot).join();
 
       if (headerResult.isReject() || headerResult.isIgnore()) {
         if (headerResult.isReject()) {
           LOG.debug(
-              "Partial message header from {} for blockRoot {} rejected: {}",
+              "Partial message header from {} for blockRoot={} column={} REJECTED: {}",
               from,
               blockRoot,
+              columnIndex,
               headerResult.getDescription().orElse("no reason"));
           feedback.reportFeedback(topicId, from, FeedbackKind.INVALID);
         } else {
           LOG.trace(
-              "Partial message header from {} for blockRoot {} ignored: {}",
+              "Partial message header from {} for blockRoot={} column={} IGNORED: {}",
               from,
               blockRoot,
+              columnIndex,
               headerResult.getDescription().orElse("no reason"));
           feedback.reportFeedback(topicId, from, FeedbackKind.IGNORED);
         }
         return;
       }
+      LOG.trace(
+          "Partial message header from {} for blockRoot={} column={} accepted and cached",
+          from,
+          blockRoot,
+          columnIndex);
     }
 
     // b. Validate and process cells if present
     if (maybeSidecar.isPresent() && !maybeSidecar.get().getCellsPresentBitmap().isEmpty()) {
       final PartialDataColumnSidecarFulu sidecar = maybeSidecar.get();
+      final int incomingCellCount = sidecar.getCellsPresentBitmap().getBitCount();
+
+      LOG.trace(
+          "Validating {} cells from {} for blockRoot={} column={}",
+          incomingCellCount,
+          from,
+          blockRoot,
+          columnIndex);
 
       final InternalValidationResult cellResult =
           cellValidator.validate(sidecar, blockRoot, columnIndex).join();
 
       if (cellResult.isReject()) {
         LOG.debug(
-            "Partial message cells from {} for blockRoot {} column {} rejected: {}",
+            "Partial message cells from {} for blockRoot={} column={} REJECTED ({}): {}",
             from,
             blockRoot,
             columnIndex,
+            incomingCellCount,
             cellResult.getDescription().orElse("no reason"));
         feedback.reportFeedback(topicId, from, FeedbackKind.INVALID);
         return;
@@ -233,7 +271,7 @@ public class PartialDataColumnSidecarHandler
 
       if (cellResult.isIgnore()) {
         LOG.trace(
-            "Partial message cells from {} for blockRoot {} column {} ignored: {}",
+            "Partial message cells from {} for blockRoot={} column={} IGNORED: {}",
             from,
             blockRoot,
             columnIndex,
@@ -245,8 +283,21 @@ public class PartialDataColumnSidecarHandler
       // Merge novel cells into the local store
       final List<Integer> novelBlobIndices = cellStore.merge(blockRoot, columnIndex, sidecar);
       if (novelBlobIndices.isEmpty()) {
+        LOG.trace(
+            "All {} cells from {} for blockRoot={} column={} are duplicates",
+            incomingCellCount,
+            from,
+            blockRoot,
+            columnIndex);
         feedback.reportFeedback(topicId, from, FeedbackKind.IGNORED);
       } else {
+        LOG.debug(
+            "Merged {} novel cell(s) from {} for blockRoot={} column={} blobIndices={}",
+            novelBlobIndices.size(),
+            from,
+            blockRoot,
+            columnIndex,
+            novelBlobIndices);
         feedback.reportFeedback(topicId, from, FeedbackKind.USEFUL);
 
         // d. Check if reconstruction is possible
@@ -254,12 +305,16 @@ public class PartialDataColumnSidecarHandler
             .get(blockRoot, columnIndex)
             .ifPresent(
                 entry -> {
-                  // We need the total expected cell count from the cached header (Step 9 wires
-                  // this)
+                  LOG.trace(
+                      "Cell store for blockRoot={} column={}: have {} cells so far",
+                      blockRoot,
+                      columnIndex,
+                      entry.cellCount());
                   final int totalExpected = computeTotalExpected(blockRoot, entry);
                   if (totalExpected > 0 && entry.cellCount() == totalExpected) {
                     LOG.debug(
-                        "Reconstruction possible for blockRoot={} columnIndex={}",
+                        "All {} cells complete for blockRoot={} column={} — triggering reconstruction",
+                        totalExpected,
                         blockRoot,
                         columnIndex);
                     reconstructionListener.onReconstructionComplete(blockRoot, columnIndex, entry);
@@ -273,9 +328,10 @@ public class PartialDataColumnSidecarHandler
         metadata -> {
           // Peer state update will be applied atomically via PublishAction.nextPeerState in Step 7
           LOG.trace(
-              "Received metadata from {} for blockRoot={}: available={}, requests={}",
+              "Peer {} metadata for blockRoot={} column={}: available={} cells, requests={} cells",
               from,
               blockRoot,
+              columnIndex,
               metadata.getAvailable().getBitCount(),
               metadata.getRequests().getBitCount());
         });

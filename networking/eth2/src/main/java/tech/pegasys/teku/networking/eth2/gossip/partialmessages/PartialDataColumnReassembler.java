@@ -79,6 +79,12 @@ public class PartialDataColumnReassembler
       final int columnIndex,
       final PartialDataColumnLocalCellStore.ColumnEntry entry) {
 
+    LOG.debug(
+        "Reconstruction triggered: blockRoot={} column={} cells={}",
+        blockRoot,
+        columnIndex,
+        entry.cellCount());
+
     final Optional<PartialDataColumnHeaderFulu> maybeHeader = headerCache.get(blockRoot);
     if (maybeHeader.isEmpty()) {
       LOG.warn(
@@ -141,7 +147,11 @@ public class PartialDataColumnReassembler
     }
 
     LOG.debug(
-        "Reconstructed DataColumnSidecar for blockRoot={} columnIndex={}", blockRoot, columnIndex);
+        "Reconstructed DataColumnSidecar: blockRoot={} column={} slot={} cells={}",
+        blockRoot,
+        columnIndex,
+        slot,
+        entry.cellCount());
 
     // 1. Deliver to DataColumnSidecarManager (existing ingest path)
     final SafeFuture<InternalValidationResult> managerResult =

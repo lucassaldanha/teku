@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes32;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.networking.eth2.gossip.partialmessages.jvmlibp2p.PartialGossip;
@@ -53,6 +55,7 @@ import tech.pegasys.teku.spec.datastructures.type.SszKZGProof;
  */
 public class PartialDataColumnSidecarPublisher {
 
+  private static final Logger LOG = LogManager.getLogger();
   private static final byte GROUP_ID_VERSION_BYTE = 0x00;
 
   private final PartialGossip partialGossip;
@@ -89,15 +92,28 @@ public class PartialDataColumnSidecarPublisher {
       final int columnIndex,
       @SuppressWarnings("unused") final Map<PeerId, PartialDataColumnPeerState> peerStates) {
 
+    LOG.debug(
+        "publishReactive: topic={} blockRoot={} column={} peers={}",
+        topic,
+        blockRoot,
+        columnIndex,
+        peerStates.size());
     final byte[] groupId = buildGroupId(blockRoot);
     final PublishActionsFn<PartialDataColumnPeerState> actionsFn =
-        (livePeerStates, peerRequestsPartial) ->
-            buildReactiveActions(blockRoot, columnIndex, livePeerStates, peerRequestsPartial)
-                .stream()
-                .map(
-                    entry ->
-                        (Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>)
-                            new AbstractMap.SimpleEntry<>(entry.getKey(), entry.getValue()));
+        (livePeerStates, peerRequestsPartial) -> {
+          final var actions =
+              buildReactiveActions(blockRoot, columnIndex, livePeerStates, peerRequestsPartial);
+          LOG.trace(
+              "publishReactive actionsFn: blockRoot={} column={} building {} peer actions",
+              blockRoot,
+              columnIndex,
+              actions.size());
+          return actions.stream()
+              .map(
+                  entry ->
+                      (Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>)
+                          new AbstractMap.SimpleEntry<>(entry.getKey(), entry.getValue()));
+        };
 
     return SafeFuture.of(partialGossip.publishPartial(topic, groupId, actionsFn));
   }
@@ -114,6 +130,12 @@ public class PartialDataColumnSidecarPublisher {
 
     final byte[] groupId = buildGroupId(blockRoot);
     final BitSet available = cellStore.getAvailableBitSet(blockRoot, columnIndex);
+    LOG.debug(
+        "publishMetadataOnly: topic={} blockRoot={} column={} availableCells={}",
+        topic,
+        blockRoot,
+        columnIndex,
+        available.cardinality());
     final byte[] metadataBytes = buildMetadataBytes(available);
 
     final PublishActionsFn<PartialDataColumnPeerState> actionsFn =
@@ -161,8 +183,21 @@ public class PartialDataColumnSidecarPublisher {
       toSend.andNot(state.cellsSentToPeer());
 
       if (toSend.isEmpty() && !state.isFirstMessage()) {
+        LOG.trace(
+            "publishReactive: peer={} blockRoot={} column={} — nothing new to send; skipping",
+            peerId,
+            blockRoot,
+            columnIndex);
         continue;
       }
+
+      LOG.trace(
+          "publishReactive: peer={} blockRoot={} column={} — sending {} cell(s) includeHeader={}",
+          peerId,
+          blockRoot,
+          columnIndex,
+          toSend.cardinality(),
+          state.isFirstMessage());
 
       final Optional<byte[]> maybeSidecarBytes =
           buildPartialSidecarBytes(blockRoot, columnIndex, toSend, state, maybeHeader, maybeEntry);
