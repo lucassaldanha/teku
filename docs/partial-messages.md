@@ -690,7 +690,7 @@ checklist in the Teku tracking issue (TBD).
       simulator.
       *(commit: 0356a17ff7)*
 
-- [ ] **Step 8 — Subscription wiring + master CLI flag.** Extend
+- [x] **Step 8 — Subscription wiring + master CLI flag.** Extend
       `DataColumnSidecarSubnetSubscriptions.subscribe(subnetId)` to pass the
       partial-message subscribe options when the master flag is on; wire
       `LibP2PGossipNetworkBuilder` to install our handler on the
@@ -698,6 +698,7 @@ checklist in the Teku tracking issue (TBD).
       flag and plumb it through `BeaconChainConfiguration` /
       `Eth2P2PNetworkBuilder`. Tests: integration test boots two Teku nodes
       with the flag on, exchanges cells, both reconstruct the full sidecar.
+      *(commit: d00fa44400)*
 
 - [ ] **Step 9 — Reassembly + non-partial forwarding.** On reconstruction,
       deliver to `DataColumnSidecarManager` and re-`gossip(...)` over
