@@ -349,10 +349,9 @@ public class PartialDataColumnSidecarHandler
       }
     }
 
-    // c. Update peer state via future peer-state update mechanism (Step 7)
+    // c. Update peer state with the metadata and reactively send cells they requested.
     maybeMetadata.ifPresent(
         metadata -> {
-          // Peer state update will be applied atomically via PublishAction.nextPeerState in Step 7
           LOG.trace(
               "Peer {} metadata for blockRoot={} column={}: available={} cells, requests={} cells",
               from,
@@ -360,6 +359,17 @@ public class PartialDataColumnSidecarHandler
               columnIndex,
               metadata.getAvailable().getBitCount(),
               metadata.getRequests().getBitCount());
+          publisher.ifPresent(
+              p ->
+                  p.publishReactiveOnIncomingMetadata(
+                          topicId, blockRoot, columnIndex, from, metadata)
+                      .finish(
+                          error ->
+                              LOG.error(
+                                  "Error in publishReactiveOnIncomingMetadata for peer {} blockRoot {}",
+                                  from,
+                                  blockRoot,
+                                  error)));
         });
   }
 

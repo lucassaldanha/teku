@@ -141,7 +141,7 @@ public class PartialDataColumnSidecarPublisher {
         blockRoot,
         columnIndex,
         available.cardinality());
-    final byte[] metadataBytes = buildMetadataBytes(available);
+    final byte[] metadataBytes = buildMetadataBytesWithRequests(blockRoot, available);
 
     final PublishActionsFn<PartialDataColumnPeerState> actionsFn =
         (peerStates, peerRequestsPartial) ->
@@ -173,7 +173,7 @@ public class PartialDataColumnSidecarPublisher {
         columnIndex,
         gossipPeers.size(),
         available.cardinality());
-    final byte[] metadataBytes = buildMetadataBytes(available);
+    final byte[] metadataBytes = buildMetadataBytesWithRequests(blockRoot, available);
 
     final PublishActionsFn<PartialDataColumnPeerState> actionsFn =
         (livePeerStates, peerRequestsPartial) -> {
@@ -199,6 +199,81 @@ public class PartialDataColumnSidecarPublisher {
           }
           return actions.stream();
         };
+    return SafeFuture.of(partialGossip.publishPartial(topic, groupId, actionsFn));
+  }
+
+  /**
+   * Updates the from-peer's state with their newly-received metadata and immediately sends them any
+   * cells they requested that we have available. Triggered by inbound metadata-only RPCs.
+   */
+  public SafeFuture<Void> publishReactiveOnIncomingMetadata(
+      final String topic,
+      final Bytes32 blockRoot,
+      final int columnIndex,
+      final PeerId fromPeer,
+      final PartialDataColumnPartsMetadata metadata) {
+
+    final byte[] groupId = buildGroupId(blockRoot);
+    final Optional<PartialDataColumnLocalCellStore.ColumnEntry> maybeEntry =
+        cellStore.get(blockRoot, columnIndex);
+    final Optional<PartialDataColumnHeaderFulu> maybeHeader = headerCache.get(blockRoot);
+    final BitSet available =
+        maybeEntry.map(e -> (BitSet) e.available().clone()).orElseGet(BitSet::new);
+    final byte[] metadataBytes = buildMetadataBytesWithRequests(blockRoot, available);
+
+    LOG.debug(
+        "publishReactiveOnIncomingMetadata: topic={} blockRoot={} column={} fromPeer={} available={} requests={}",
+        topic,
+        blockRoot,
+        columnIndex,
+        fromPeer,
+        available.cardinality(),
+        metadata.getRequests().getBitCount());
+
+    final PublishActionsFn<PartialDataColumnPeerState> actionsFn =
+        (livePeerStates, peerRequestsPartial) -> {
+          final List<Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>> actions =
+              new ArrayList<>();
+          if (!peerRequestsPartial.apply(fromPeer)) {
+            return actions.stream();
+          }
+          final PartialDataColumnPeerState existingState = livePeerStates.get(fromPeer);
+          final PartialDataColumnPeerState currentState =
+              existingState != null ? existingState : PartialDataColumnPeerState.initial();
+          final PartialDataColumnPeerState updatedState =
+              currentState.withUpdatedMetadata(metadata);
+
+          final BitSet toSend = (BitSet) updatedState.cellsRequestedByPeer().clone();
+          toSend.and(available);
+          toSend.andNot(updatedState.cellsSentToPeer());
+
+          final boolean sendHeader = updatedState.isFirstMessage() && maybeHeader.isPresent();
+          if (toSend.isEmpty() && !sendHeader) {
+            // Just update peer state; no cells to send.
+            actions.add(
+                new AbstractMap.SimpleEntry<>(
+                    fromPeer, new PublishAction<>(null, null, updatedState, null)));
+            return actions.stream();
+          }
+
+          final Optional<byte[]> sidecarBytes =
+              buildPartialSidecarBytes(
+                  blockRoot, columnIndex, toSend, updatedState, maybeHeader, maybeEntry);
+          final PartialDataColumnPeerState nextState = updatedState.withCellsSent(toSend);
+
+          LOG.trace(
+              "publishReactiveOnIncomingMetadata: sending {} cell(s) includeHeader={} to {}",
+              toSend.cardinality(),
+              sendHeader,
+              fromPeer);
+
+          actions.add(
+              new AbstractMap.SimpleEntry<>(
+                  fromPeer,
+                  new PublishAction<>(sidecarBytes.orElse(null), metadataBytes, nextState, null)));
+          return actions.stream();
+        };
+
     return SafeFuture.of(partialGossip.publishPartial(topic, groupId, actionsFn));
   }
 
@@ -255,7 +330,7 @@ public class PartialDataColumnSidecarPublisher {
     final Optional<PartialDataColumnHeaderFulu> maybeHeader = headerCache.get(blockRoot);
     final BitSet available =
         maybeEntry.map(e -> (BitSet) e.available().clone()).orElseGet(BitSet::new);
-    final byte[] metadataBytes = buildMetadataBytes(available);
+    final byte[] metadataBytes = buildMetadataBytesWithRequests(blockRoot, available);
 
     final List<Map.Entry<PeerId, PublishAction<PartialDataColumnPeerState>>> actions =
         new ArrayList<>();
@@ -377,13 +452,44 @@ public class PartialDataColumnSidecarPublisher {
     return Optional.of(sidecar.sszSerialize().toArrayUnsafe());
   }
 
-  private byte[] buildMetadataBytes(final BitSet available) {
-    final int size = Math.max(available.length(), 1);
+  private byte[] buildMetadataBytesWithRequests(final Bytes32 blockRoot, final BitSet available) {
+    final BitSet requests = computeRequestBits(blockRoot, available);
+    return buildMetadataBytesWithRequests(available, requests);
+  }
+
+  private byte[] buildMetadataBytesWithRequests(final BitSet available, final BitSet requests) {
+    final int size = Math.max(Math.max(available.length(), requests.length()), 1);
+    final int[] availableBits = available.stream().toArray();
+    final int[] requestBits = requests.stream().toArray();
     final PartialDataColumnPartsMetadata metadata =
         metadataSchema.create(
-            metadataSchema.getAvailableSchema().ofBits(size, available.stream().toArray()),
-            metadataSchema.getRequestsSchema().ofBits(size));
+            availableBits.length == 0
+                ? metadataSchema.getAvailableSchema().ofBits(size)
+                : metadataSchema.getAvailableSchema().ofBits(size, availableBits),
+            requestBits.length == 0
+                ? metadataSchema.getRequestsSchema().ofBits(size)
+                : metadataSchema.getRequestsSchema().ofBits(size, requestBits));
     return metadata.sszSerialize().toArrayUnsafe();
+  }
+
+  /**
+   * Computes which cell indices we want from peers: indices in {@code [0, total)} not yet in {@code
+   * available}, where {@code total} is taken from the cached header's kzg_commitments length. If
+   * the header is not cached we cannot determine total and request nothing.
+   */
+  private BitSet computeRequestBits(final Bytes32 blockRoot, final BitSet available) {
+    final Optional<PartialDataColumnHeaderFulu> maybeHeader = headerCache.get(blockRoot);
+    if (maybeHeader.isEmpty()) {
+      return new BitSet();
+    }
+    final int total = maybeHeader.get().getKzgCommitments().size();
+    if (total == 0) {
+      return new BitSet();
+    }
+    final BitSet requests = new BitSet(total);
+    requests.set(0, total);
+    requests.andNot(available);
+    return requests;
   }
 
   private PartialDataColumnPartsMetadata buildEmptyMetadata() {
