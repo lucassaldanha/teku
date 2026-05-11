@@ -85,6 +85,17 @@ public class PartialDataColumnSidecarSchemaFulu
         this, cellsPresentBitmap, partialColumn, kzgProofs, header);
   }
 
+  /** Builds a {@link PartialDataColumnHeaderFulu} from the common fields of a full sidecar. */
+  public PartialDataColumnHeaderFulu buildHeaderFromFullSidecar(
+      final DataColumnSidecarFulu fullSidecar) {
+    final PartialDataColumnHeaderSchemaFulu headerElementSchema =
+        (PartialDataColumnHeaderSchemaFulu) getHeaderSchema().getElementSchema();
+    return headerElementSchema.create(
+        fullSidecar.getKzgCommitments(),
+        fullSidecar.getSignedBlockHeader(),
+        fullSidecar.getKzgCommitmentsInclusionProof());
+  }
+
   @Override
   public PartialDataColumnSidecarFulu createFromBackingNode(final TreeNode node) {
     return new PartialDataColumnSidecarFulu(this, node);

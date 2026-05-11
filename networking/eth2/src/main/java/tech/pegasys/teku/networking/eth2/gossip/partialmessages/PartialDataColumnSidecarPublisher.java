@@ -324,6 +324,12 @@ public class PartialDataColumnSidecarPublisher {
         columnIndex,
         numCells);
 
+    // Cache the header once (first column call for this blockRoot) so peers receive it on
+    // first contact and can validate cells + compute their request bits.
+    if (!headerCache.contains(blockRoot)) {
+      headerCache.put(blockRoot, sidecarSchema.buildHeaderFromFullSidecar(fullSidecar));
+    }
+
     if (numCells > 0) {
       final int[] allBits = IntStream.range(0, numCells).toArray();
       final var bitmap = sidecarSchema.getCellsPresentBitmapSchema().ofBits(numCells, allBits);
