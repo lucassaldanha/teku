@@ -165,7 +165,11 @@ public class PartialDataColumnSidecarPublisher {
       final int columnIndex,
       final Collection<PeerId> gossipPeers) {
     final byte[] groupId = buildGroupId(blockRoot);
-    final BitSet available = cellStore.getAvailableBitSet(blockRoot, columnIndex);
+    final Optional<PartialDataColumnLocalCellStore.ColumnEntry> maybeEntry =
+        cellStore.get(blockRoot, columnIndex);
+    final Optional<PartialDataColumnHeaderFulu> maybeHeader = headerCache.get(blockRoot);
+    final BitSet available =
+        maybeEntry.map(e -> (BitSet) e.available().clone()).orElseGet(BitSet::new);
     LOG.debug(
         "publishMetadataToGossipPeers: topic={} blockRoot={} column={} peers={} available={}",
         topic,
@@ -181,10 +185,35 @@ public class PartialDataColumnSidecarPublisher {
               new ArrayList<>();
           for (final Map.Entry<PeerId, ? extends PartialDataColumnPeerState> entry :
               livePeerStates.entrySet()) {
-            if (peerRequestsPartial.apply(entry.getKey())) {
+            final PeerId peerId = entry.getKey();
+            if (!peerRequestsPartial.apply(peerId)) {
+              continue;
+            }
+            final PartialDataColumnPeerState state = entry.getValue();
+            final BitSet toSend = (BitSet) state.cellsRequestedByPeer().clone();
+            toSend.and(available);
+            toSend.andNot(state.cellsSentToPeer());
+
+            if (!toSend.isEmpty()) {
+              LOG.trace(
+                  "publishMetadataToGossipPeers: sending {} cell(s) to peer={} blockRoot={} column={}",
+                  toSend.cardinality(),
+                  peerId,
+                  blockRoot,
+                  columnIndex);
+              final Optional<byte[]> maybeSidecarBytes =
+                  buildPartialSidecarBytes(
+                      blockRoot, columnIndex, toSend, state, maybeHeader, maybeEntry);
+              final PartialDataColumnPeerState nextState = state.withCellsSent(toSend);
               actions.add(
                   new AbstractMap.SimpleEntry<>(
-                      entry.getKey(), new PublishAction<>(null, metadataBytes, null, null)));
+                      peerId,
+                      new PublishAction<>(
+                          maybeSidecarBytes.orElse(null), metadataBytes, nextState, null)));
+            } else {
+              actions.add(
+                  new AbstractMap.SimpleEntry<>(
+                      peerId, new PublishAction<>(null, metadataBytes, null, null)));
             }
           }
           for (final PeerId peerId : gossipPeers) {
