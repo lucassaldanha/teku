@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
@@ -30,6 +31,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import pubsub.pb.Rpc;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
+import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnPartsMetadata.PartialDataColumnPartsMetadataSchema;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.fulu.PartialDataColumnSidecarFulu;
@@ -69,6 +71,15 @@ public class PartialDataColumnSidecarHandler
   private final ReconstructionListener reconstructionListener;
 
   private volatile Optional<PartialDataColumnSidecarPublisher> publisher = Optional.empty();
+
+  /**
+   * Tracks in-flight header validation futures by blockRoot. The networkAsyncRunner has multiple
+   * threads, so concurrent processAsync calls for different columns of the same block can race.
+   * When a cells-only processAsync finds no cached header, it checks this map and awaits a
+   * concurrent header validation if one is registered.
+   */
+  private final ConcurrentHashMap<Bytes32, SafeFuture<InternalValidationResult>>
+      pendingHeaderValidations = new ConcurrentHashMap<>();
 
   /**
    * Callback invoked when all cells for a {@code (blockRoot, columnIndex)} pair have been received.
@@ -231,8 +242,15 @@ public class PartialDataColumnSidecarHandler
           from,
           blockRoot,
           columnIndex);
-      final InternalValidationResult headerResult =
-          headerValidator.validate(maybeSidecar.get(), blockRoot).join();
+      final SafeFuture<InternalValidationResult> headerFuture =
+          headerValidator.validate(maybeSidecar.get(), blockRoot);
+      // Register before joining so concurrent cell-only processAsync calls can wait on this future.
+      // putIfAbsent: only the first header validation for a blockRoot is tracked; subsequent
+      // columns re-validating the same header will find the cache already populated.
+      pendingHeaderValidations.putIfAbsent(blockRoot, headerFuture);
+
+      final InternalValidationResult headerResult = headerFuture.join();
+      pendingHeaderValidations.remove(blockRoot, headerFuture);
 
       if (headerResult.isReject() || headerResult.isIgnore()) {
         if (headerResult.isReject()) {
@@ -272,6 +290,21 @@ public class PartialDataColumnSidecarHandler
           from,
           blockRoot,
           columnIndex);
+
+      // If the sidecar carried no header, the header must already be in the cache (populated by a
+      // previous or concurrent processAsync that handled a header for the same blockRoot). If a
+      // concurrent header validation is still in-flight (registered in pendingHeaderValidations),
+      // wait for it to complete before invoking the cell validator so the cache is populated.
+      if (sidecar.getOptionalHeader().isEmpty()) {
+        final SafeFuture<InternalValidationResult> pending =
+            pendingHeaderValidations.get(blockRoot);
+        if (pending != null) {
+          LOG.trace(
+              "Waiting for concurrent header validation for blockRoot={} before validating cells",
+              blockRoot);
+          pending.join();
+        }
+      }
 
       final InternalValidationResult cellResult =
           cellValidator.validate(sidecar, blockRoot, columnIndex).join();
