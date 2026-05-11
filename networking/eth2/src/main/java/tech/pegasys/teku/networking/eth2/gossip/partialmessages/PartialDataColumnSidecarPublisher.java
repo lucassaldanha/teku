@@ -276,7 +276,7 @@ public class PartialDataColumnSidecarPublisher {
           toSend.and(available);
           toSend.andNot(updatedState.cellsSentToPeer());
 
-          final boolean sendHeader = updatedState.isFirstMessage() && maybeHeader.isPresent();
+          final boolean sendHeader = currentState.isFirstMessage() && maybeHeader.isPresent();
           if (toSend.isEmpty() && !sendHeader) {
             // Just update peer state; no cells to send.
             actions.add(
@@ -287,7 +287,7 @@ public class PartialDataColumnSidecarPublisher {
 
           final Optional<byte[]> sidecarBytes =
               buildPartialSidecarBytes(
-                  blockRoot, columnIndex, toSend, updatedState, maybeHeader, maybeEntry);
+                  blockRoot, columnIndex, toSend, currentState, maybeHeader, maybeEntry);
           final PartialDataColumnPeerState nextState = updatedState.withCellsSent(toSend);
 
           LOG.trace(
