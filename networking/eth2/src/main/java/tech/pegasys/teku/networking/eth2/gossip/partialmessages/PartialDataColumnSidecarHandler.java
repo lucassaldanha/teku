@@ -119,7 +119,7 @@ public class PartialDataColumnSidecarHandler
    * the async runner.
    */
   @Override
-  public void onIncomingRpc(
+  public PartialDataColumnPeerState onIncomingRpc(
       final PeerId from,
       final Map<PeerId, ? extends PartialDataColumnPeerState> peerStates,
       final Rpc.PartialMessagesExtension rpc,
@@ -140,7 +140,7 @@ public class PartialDataColumnSidecarHandler
           from,
           groupIdBytes.length,
           groupIdBytes.length > 0 ? groupIdBytes[0] : -1);
-      return;
+      return null;
     }
     final Bytes32 blockRoot = Bytes32.wrap(groupIdBytes, 1);
 
@@ -149,7 +149,7 @@ public class PartialDataColumnSidecarHandler
     if (columnIndex < 0) {
       LOG.debug(
           "Partial message from {} has unrecognised topic '{}'; dropping", from, rpc.getTopicID());
-      return;
+      return null;
     }
 
     // 3. Snapshot peer states (live view must not be retained beyond this call)
@@ -191,6 +191,8 @@ public class PartialDataColumnSidecarHandler
                     from,
                     blockRoot,
                     error));
+    // Peer state is updated asynchronously via publishReactiveOnIncomingMetadata → publishPartial.
+    return null;
   }
 
   @Override
