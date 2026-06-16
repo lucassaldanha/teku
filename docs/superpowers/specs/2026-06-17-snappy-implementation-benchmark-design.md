@@ -135,12 +135,67 @@ The one correctness check is the bidirectional cross-compatibility round-trip (f
 performed during implementation to confirm wire-format interoperability before any migration is
 considered.
 
-## Decision output
+## Results & Decision output
 
-After running the benchmark, the evaluation concludes with a recommendation:
+### Feasibility findings (confirmed)
 
-- If Netty is competitive (and given it removes the native dependency that already caused
-  outages), recommend migrating gossip to Netty block compression — with the bounds-check helper
-  and thread-safety handling from the feasibility section.
-- If snappy-java is materially faster on the large-payload (sidecar) cases that matter most,
-  record the measured gap so the native-dependency risk can be weighed against it explicitly.
+1. **Wire format is interoperable (✅).** The bidirectional cross-compatibility check in
+   `@Setup` passed for every payload type during every benchmark run: snappy-java decodes
+   Netty's block output and vice-versa. Both implementations speak the same Google Snappy
+   block format. A migration would not break gossip interoperability with the network.
+2. **Bounds pre-check:** confirmed Netty exposes no public `uncompressedLength` equivalent; a
+   migration must read the varint preamble manually to preserve gossip's pre-allocation DoS guard.
+3. **Thread-safety:** confirmed — Netty `Snappy` is a stateful instance (the benchmark creates a
+   fresh one per call); a migration needs a per-use instance / `ThreadLocal` / `reset()`.
+
+### Measured performance
+
+Environment: local dev machine (darwin), JDK 25, JMH 1.37, `-f 1 -wi 2 -i 5`, payloads from
+`DataStructureUtil` (seed 1) on mainnet Fulu. Numbers are average time (`us/op`, lower is better)
+and allocation (`gc.alloc.rate.norm`, `B/op`, lower is better). Reproduce with the command in the
+module README. **Caveat:** `DataStructureUtil` payloads are high-entropy (random BLS signatures),
+so these are not mainnet-representative *absolute* numbers — but both implementations receive
+byte-identical input, so the *relative* comparison is valid.
+
+| Payload | Op | snappy-java us/op | Netty us/op | snappy-java B/op | Netty B/op |
+|---|---|---|---|---|---|
+| Attestation | compress | 2.318 | 4.259 | 36,080 | 90,720 |
+| Attestation | decompress | 0.687 | 1.565 | 16,640 | 83,296 |
+| AggregateAndProof | compress | 2.253 | 3.732 | 36,544 | 91,040 |
+| AggregateAndProof | decompress | 0.700 | 1.551 | 16,848 | 84,360 |
+| SyncCommitteeMessage | compress | 0.224 | **0.201** | 384 | 1,240 |
+| SyncCommitteeMessage | decompress | 0.213 | **0.064** | 160 | 920 |
+| BeaconBlock | compress | 3.775 | 21.578 | 124,896 | 183,928 |
+| BeaconBlock | decompress | 1.267 | 5.613 | 57,656 | 284,032 |
+| DataColumnSidecar | compress | 2.340 | 4.258 | 38,008 | 92,056 |
+| DataColumnSidecar | decompress | 0.728 | 1.652 | 17,528 | 87,736 |
+
+(Bold = the implementation that won that row.)
+
+### Interpretation
+
+- **snappy-java wins on every realistic gossip payload** — attestations, aggregates, beacon
+  blocks, and data column sidecars — on both latency and allocation, often substantially
+  (BeaconBlock compress ~5.7×; decompress ~4.4×). The native engine also allocates roughly 2×
+  less for medium payloads and up to ~5× less for the large BeaconBlock decompress path.
+- **Netty wins only on the smallest payload** (`SyncCommitteeMessage`, the tiny case), where the
+  fixed JNI-crossing cost of snappy-java dominates the work — Netty's decompress is ~3.3× faster
+  there. This is the predicted small-message crossover.
+- **Part of Netty's allocation disadvantage is benchmark-tunable.** The naive growable `ByteBuf`
+  sizing (`in.length * 4`, doubling) inflates large-payload allocation; a production migration
+  using pooled/right-sized buffers would narrow — but not erase — the gap, and would not change
+  the latency ordering.
+
+### Recommendation
+
+snappy-java is meaningfully faster and lower-allocation for the payloads that dominate gossip
+volume (attestations/aggregates) and that matter most under load (blocks, data column sidecars).
+The wire format is interoperable, so a migration is *safe*, but the measured performance cost is
+real and one-directional for everything except the smallest message.
+
+**Therefore: do not migrate gossip to Netty purely for dependency consolidation.** The native
+dependency removal (eliminating the musl-libc class of failures) is the only argument for
+switching, and it is outweighed here by a consistent 2–5× latency/allocation regression on the
+hot paths. If the native-library operational risk is judged unacceptable on its own merits, this
+data quantifies the price of removing it, and any such migration must still add the varint-based
+bounds-check helper and per-use `Snappy` instancing from the feasibility section.
