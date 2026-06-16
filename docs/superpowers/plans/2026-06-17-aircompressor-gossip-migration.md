@@ -326,3 +326,392 @@ Expected: BUILD SUCCESSFUL.
 - Spec coverage: feasibility item 1 (wire interop) → Task 3; item 2 (bounds pre-check) → Task 2 (`getUncompressedLength` + preserved checks); item 3 (thread-safety) → Task 4. Performance rationale → benchmark spec (already recorded).
 - Behaviour preservation: exception messages ("exceeds max length in bytes", "not within expected bounds") and `DecodingException` type are copied verbatim so the existing tests remain the contract.
 - Exception-type change (snappy-java `IOException` → aircompressor `MalformedInputException extends RuntimeException`) is handled explicitly in both `uncompress` catch sites.
+
+---
+
+# Part 2: Feature-flag gating and RPC consolidation
+
+This part makes the new compression **selectable per-node behind hidden experimental flags** (default = current behaviour, opt-in = aircompressor) and extends consolidation to the RPC path. Both Snappy block and Snappy framed are standardized wire formats, so these flags are **operational rollout/rollback toggles, not protocol switches** — a flagged node stays fully interoperable with the network.
+
+## Adjustments to Part 1 (apply if shipping behind a flag)
+
+To gate behind a flag, both implementations must coexist at runtime, so two Part-1 steps change:
+
+- **Task 1, Step 1:** Do **not** demote snappy-java to `testImplementation`. Keep `implementation 'org.xerial.snappy:snappy-java'` (it backs the default, flag-off path) and **add** `implementation 'io.airlift:aircompressor-v3'`. (The license allow-list step is unchanged.)
+- **Task 2:** Instead of replacing `SnappyBlockCompressor`'s internals in place, `SnappyBlockCompressor` becomes an **interface** with two implementations (Task 6 below). The aircompressor logic from Task 2 moves verbatim into `AircompressorSnappyBlockCompressor`; the original snappy-java logic is preserved in `SnappyJavaBlockCompressor`. Tasks 3–5 (interop test, concurrency test, verification) then run against the aircompressor implementation.
+
+---
+
+### Task 6: Extract `SnappyBlockCompressor` into an interface with two implementations
+
+**Files:**
+- Modify: `networking/eth2/src/main/java/tech/pegasys/teku/networking/eth2/gossip/encoding/SnappyBlockCompressor.java` (becomes an interface)
+- Create: `networking/eth2/src/main/java/tech/pegasys/teku/networking/eth2/gossip/encoding/SnappyJavaBlockCompressor.java`
+- Create: `networking/eth2/src/main/java/tech/pegasys/teku/networking/eth2/gossip/encoding/AircompressorSnappyBlockCompressor.java`
+- Test: convert `SnappyBlockCompressorTest` into an abstract base with two concrete subclasses.
+
+- [ ] **Step 1: Replace `SnappyBlockCompressor` with an interface**
+
+Replace the class body (keep copyright header) of `SnappyBlockCompressor.java` with:
+
+```java
+package tech.pegasys.teku.networking.eth2.gossip.encoding;
+
+import org.apache.tuweni.bytes.Bytes;
+import tech.pegasys.teku.infrastructure.ssz.sos.SszLengthBounds;
+
+/** Snappy "block" format codec for gossip messages. */
+public interface SnappyBlockCompressor {
+
+  Bytes compress(Bytes data);
+
+  Bytes uncompress(Bytes compressedData, SszLengthBounds lengthBounds, long maxBytesLength)
+      throws DecodingException;
+}
+```
+
+- [ ] **Step 2: Add the snappy-java implementation (preserves current default behaviour)**
+
+Create `SnappyJavaBlockCompressor.java` with the original implementation (copyright header + this body):
+
+```java
+package tech.pegasys.teku.networking.eth2.gossip.encoding;
+
+import java.io.IOException;
+import org.apache.tuweni.bytes.Bytes;
+import org.xerial.snappy.Snappy;
+import tech.pegasys.teku.infrastructure.ssz.sos.SszLengthBounds;
+
+/** snappy-java (JNI native) implementation of the gossip Snappy block codec. */
+public class SnappyJavaBlockCompressor implements SnappyBlockCompressor {
+
+  @Override
+  public Bytes uncompress(
+      final Bytes compressedData, final SszLengthBounds lengthBounds, final long maxBytesLength)
+      throws DecodingException {
+    try {
+      final int uncompressedLength = Snappy.uncompressedLength(compressedData.toArrayUnsafe());
+      if (uncompressedLength > maxBytesLength) {
+        throw new DecodingException(
+            String.format(
+                "Uncompressed length %d exceeds max length in bytes of %s",
+                uncompressedLength, maxBytesLength));
+      }
+      if (!lengthBounds.isWithinBounds(uncompressedLength)) {
+        throw new DecodingException(
+            String.format(
+                "Uncompressed length %d is not within expected bounds %s",
+                uncompressedLength, lengthBounds));
+      }
+      return Bytes.wrap(Snappy.uncompress(compressedData.toArrayUnsafe()));
+    } catch (final IOException e) {
+      throw new DecodingException("Failed to uncompress", e);
+    }
+  }
+
+  @Override
+  public Bytes compress(final Bytes data) {
+    try {
+      return Bytes.wrap(Snappy.compress(data.toArrayUnsafe()));
+    } catch (final IOException e) {
+      throw new RuntimeException("Unable to compress data", e);
+    }
+  }
+}
+```
+
+- [ ] **Step 3: Add the aircompressor implementation**
+
+Create `AircompressorSnappyBlockCompressor.java` containing the aircompressor logic from Part 1 Task 2 (the `compress`/`uncompress` methods, the `SnappyCompressor`/`SnappyDecompressor` fields, the `MalformedInputException` handling), with the class renamed and `implements SnappyBlockCompressor` added. The method bodies are identical to Part 1 Task 2 Step 2.
+
+- [ ] **Step 4: Update the default singleton wiring**
+
+In `GossipEncoding.java`, change line 28 and add a factory. Replace:
+
+```java
+  GossipEncoding SSZ_SNAPPY = new SszSnappyEncoding(new SnappyBlockCompressor());
+```
+
+with:
+
+```java
+  GossipEncoding SSZ_SNAPPY = new SszSnappyEncoding(new SnappyJavaBlockCompressor());
+
+  static GossipEncoding createSszSnappy(final SnappyBlockCompressor compressor) {
+    return new SszSnappyEncoding(compressor);
+  }
+```
+
+(`SszSnappyEncoding` is package-private, so the static factory exposes construction to `P2PConfig` in another package. Default `SSZ_SNAPPY` stays snappy-java.)
+
+- [ ] **Step 5: Convert the test to cover both implementations**
+
+Rename `SnappyBlockCompressorTest` to an abstract base `AbstractSnappyBlockCompressorTest` with an abstract `protected abstract SnappyBlockCompressor createCompressor();` and change the field to `private final SnappyBlockCompressor compressor = createCompressor();`. Add two concrete subclasses in the same test package: `SnappyJavaBlockCompressorTest extends AbstractSnappyBlockCompressorTest` (`return new SnappyJavaBlockCompressor();`) and `AircompressorSnappyBlockCompressorTest extends AbstractSnappyBlockCompressorTest` (`return new AircompressorSnappyBlockCompressor();`). The interop test (Part 1 Task 3) lives in the aircompressor subclass.
+
+- [ ] **Step 6: Format, compile, test, commit**
+
+Run: `./gradlew :networking:eth2:spotlessApply :networking:eth2:test --tests "*SnappyBlockCompressor*"`
+Expected: PASS for both subclasses.
+
+```bash
+git add networking/eth2/src/main/java/tech/pegasys/teku/networking/eth2/gossip/encoding/ networking/eth2/src/test/java/tech/pegasys/teku/networking/eth2/gossip/encoding/
+git commit -m "Extract SnappyBlockCompressor interface with snappy-java and aircompressor impls"
+```
+
+---
+
+### Task 7: Gate the gossip compressor behind `--Xp2p-gossip-snappy-aircompressor-enabled`
+
+**Files:**
+- Modify: `networking/eth2/src/main/java/tech/pegasys/teku/networking/eth2/P2PConfig.java`
+- Modify: `teku/src/main/java/tech/pegasys/teku/cli/options/P2POptions.java`
+
+- [ ] **Step 1: Add the config field, default, getter, and builder selection**
+
+In `P2PConfig.java`:
+- Add a default constant near line 45: `public static final boolean DEFAULT_GOSSIP_SNAPPY_USE_AIRCOMPRESSOR = false;`
+- Add a getter (near `getGossipEncoding()`, line 188): no new getter needed — the encoding is resolved in `build()` (below) and the existing `getGossipEncoding()` returns it.
+- In `Builder` (line 302), replace `private final GossipEncoding gossipEncoding = GossipEncoding.SSZ_SNAPPY;` with:
+
+```java
+    private boolean gossipSnappyUseAircompressor = DEFAULT_GOSSIP_SNAPPY_USE_AIRCOMPRESSOR;
+```
+
+- In `build()` (before the `return new P2PConfig(...)` at line 376), add:
+
+```java
+      final GossipEncoding gossipEncoding =
+          gossipSnappyUseAircompressor
+              ? GossipEncoding.createSszSnappy(new AircompressorSnappyBlockCompressor())
+              : GossipEncoding.SSZ_SNAPPY;
+```
+
+  and add the import for `AircompressorSnappyBlockCompressor`. The existing `build()` already references `gossipEncoding` for the `Eth2Context` (line 347) and the constructor (line 381); both now use this resolved local.
+- Add the builder setter (near line 428):
+
+```java
+    public Builder gossipSnappyUseAircompressor(final boolean enabled) {
+      this.gossipSnappyUseAircompressor = enabled;
+      return this;
+    }
+```
+
+- [ ] **Step 2: Add the hidden CLI option**
+
+In `P2POptions.java`, add a field following the `--Xp2p-gossip-scoring-enabled` pattern (around line 396):
+
+```java
+  @Option(
+      names = {"--Xp2p-gossip-snappy-aircompressor-enabled"},
+      paramLabel = "<BOOLEAN>",
+      showDefaultValue = Visibility.ALWAYS,
+      description = "Use the aircompressor library for gossip Snappy compression (experimental)",
+      hidden = true,
+      arity = "0..1",
+      fallbackValue = "true")
+  private boolean gossipSnappyUseAircompressor =
+      P2PConfig.DEFAULT_GOSSIP_SNAPPY_USE_AIRCOMPRESSOR;
+```
+
+In the `configure()` method, in the existing `builder.p2p(b -> ...)` block (around line 694), add:
+
+```java
+              .gossipSnappyUseAircompressor(gossipSnappyUseAircompressor)
+```
+
+- [ ] **Step 3: Build, test, commit**
+
+Run: `./gradlew :networking:eth2:compileJava :teku:compileJava`
+Expected: BUILD SUCCESSFUL.
+
+```bash
+git add networking/eth2/src/main/java/tech/pegasys/teku/networking/eth2/P2PConfig.java teku/src/main/java/tech/pegasys/teku/cli/options/P2POptions.java
+git commit -m "Add hidden flag to select aircompressor for gossip Snappy"
+```
+
+---
+
+### Task 8: Make the RPC Snappy inner block codec pluggable
+
+Keep Teku's framing (stream identifier, 32 KB chunking, CRC32C in `SnappyUtil`) untouched; abstract only the per-chunk block codec so it can be Netty (default) or aircompressor. Per-call/per-decompressor instances are preserved (Netty's `Snappy` is stateful), so the codec is supplied via a factory.
+
+**Files:**
+- Create: `networking/eth2/.../rpc/core/encodings/compression/snappy/SnappyBlockCodec.java`
+- Create: `.../snappy/NettySnappyBlockCodec.java`
+- Create: `.../snappy/AircompressorSnappyBlockCodec.java`
+- Modify: `.../snappy/SnappyFrameEncoder.java`, `.../snappy/SnappyFrameDecoder.java`, `.../snappy/SnappyFramedCompressor.java`
+
+- [ ] **Step 1: Define the strategy interface**
+
+Create `SnappyBlockCodec.java` (copyright header +):
+
+```java
+package tech.pegasys.teku.networking.eth2.rpc.core.encodings.compression.snappy;
+
+import io.netty.buffer.ByteBuf;
+
+/** Per-chunk Snappy block codec used inside the RPC framed format. */
+public interface SnappyBlockCodec {
+  /** Compresses {@code length} readable bytes from {@code in} into {@code out}. */
+  void encode(ByteBuf in, ByteBuf out, int length);
+
+  /** Decompresses all readable bytes of {@code in} (one Snappy block) into {@code out}. */
+  void decode(ByteBuf in, ByteBuf out);
+}
+```
+
+- [ ] **Step 2: Netty implementation (current behaviour)**
+
+Create `NettySnappyBlockCodec.java`:
+
+```java
+package tech.pegasys.teku.networking.eth2.rpc.core.encodings.compression.snappy;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.compression.Snappy;
+
+public class NettySnappyBlockCodec implements SnappyBlockCodec {
+  private final Snappy snappy = new Snappy();
+
+  @Override
+  public void encode(final ByteBuf in, final ByteBuf out, final int length) {
+    snappy.encode(in, out, length);
+  }
+
+  @Override
+  public void decode(final ByteBuf in, final ByteBuf out) {
+    snappy.decode(in, out);
+    snappy.reset();
+  }
+}
+```
+
+(Folding `reset()` into `decode()` preserves the per-chunk reset previously done at `SnappyFrameDecoder.java:208`.)
+
+- [ ] **Step 3: aircompressor implementation**
+
+Create `AircompressorSnappyBlockCodec.java`:
+
+```java
+package tech.pegasys.teku.networking.eth2.rpc.core.encodings.compression.snappy;
+
+import io.airlift.compress.v3.snappy.SnappyCompressor;
+import io.airlift.compress.v3.snappy.SnappyDecompressor;
+import io.netty.buffer.ByteBuf;
+
+public class AircompressorSnappyBlockCodec implements SnappyBlockCodec {
+  private final SnappyCompressor compressor = SnappyCompressor.create();
+  private final SnappyDecompressor decompressor = SnappyDecompressor.create();
+
+  @Override
+  public void encode(final ByteBuf in, final ByteBuf out, final int length) {
+    final byte[] src = new byte[length];
+    in.readBytes(src);
+    final byte[] dst = new byte[compressor.maxCompressedLength(length)];
+    final int written = compressor.compress(src, 0, length, dst, 0, dst.length);
+    out.writeBytes(dst, 0, written);
+  }
+
+  @Override
+  public void decode(final ByteBuf in, final ByteBuf out) {
+    final int compressedLength = in.readableBytes();
+    final byte[] src = new byte[compressedLength];
+    in.readBytes(src);
+    final byte[] dst = new byte[decompressor.getUncompressedLength(src, 0)];
+    final int written = decompressor.decompress(src, 0, compressedLength, dst, 0, dst.length);
+    out.writeBytes(dst, 0, written);
+  }
+}
+```
+
+- [ ] **Step 4: Thread the codec through the frame encoder/decoder**
+
+- `SnappyFrameEncoder.java`: replace the field `private final Snappy snappy = new Snappy();` (line 47) with `private final SnappyBlockCodec codec;`, add a constructor `public SnappyFrameEncoder(final SnappyBlockCodec codec) { this.codec = codec; }`, remove the `io.netty...Snappy` import, and change the two `snappy.encode(slice, out, N)` calls (lines 88, 94) to `codec.encode(slice, out, N)`.
+- `SnappyFrameDecoder.java`: replace the field `private final Snappy snappy = new Snappy();` (line 54) with `private final SnappyBlockCodec codec;`, add the codec to its constructors (`SnappyFrameDecoder(SnappyBlockCodec codec)` and the `(SnappyBlockCodec, boolean validateChecksums)` overload), remove the `io.netty...Snappy` import, change `snappy.decode(...)` (lines 193, 199) to `codec.decode(...)`, and delete `snappy.reset();` (line 208 — now handled inside the codec).
+- `SnappyFramedCompressor.java`: add `private final Supplier<SnappyBlockCodec> codecFactory;`, a default constructor `public SnappyFramedCompressor() { this(NettySnappyBlockCodec::new); }` and `public SnappyFramedCompressor(final Supplier<SnappyBlockCodec> codecFactory) { this.codecFactory = codecFactory; }`; change `compress()` (line 128) to `new SnappyFrameEncoder(codecFactory.get()).encode(data)` and `SnappyFramedDecompressor`'s `new SnappyFrameDecoder()` (line 33) to `new SnappyFrameDecoder(codecFactory.get())`.
+
+- [ ] **Step 5: Compile and run the RPC compression + integration tests**
+
+Run: `./gradlew :networking:eth2:spotlessApply :networking:eth2:test --tests "*Snappy*" --tests "*Rpc*"`
+Expected: PASS (default Netty path unchanged in behaviour).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add networking/eth2/src/main/java/tech/pegasys/teku/networking/eth2/rpc/core/encodings/compression/snappy/
+git commit -m "Make RPC Snappy inner block codec pluggable (Netty default)"
+```
+
+---
+
+### Task 9: Gate the RPC codec behind `--Xp2p-rpc-snappy-aircompressor-enabled`
+
+**Files:**
+- Modify: `networking/eth2/.../rpc/core/encodings/RpcEncoding.java`
+- Modify: `networking/eth2/.../Eth2P2PNetworkBuilder.java` (line 181–182)
+- Modify: `networking/eth2/.../P2PConfig.java` + `teku/.../cli/options/P2POptions.java` (mirror Task 7)
+
+- [ ] **Step 1: Add a codec-selecting factory overload to `RpcEncoding`**
+
+In `RpcEncoding.java`, add:
+
+```java
+  static RpcEncoding createSszSnappyEncoding(
+      final int maxChunkSize, final boolean useAircompressor) {
+    final java.util.function.Supplier<
+            tech.pegasys.teku.networking.eth2.rpc.core.encodings.compression.snappy.SnappyBlockCodec>
+        codecFactory =
+            useAircompressor
+                ? tech.pegasys.teku.networking.eth2.rpc.core.encodings.compression.snappy
+                    .AircompressorSnappyBlockCodec::new
+                : tech.pegasys.teku.networking.eth2.rpc.core.encodings.compression.snappy
+                    .NettySnappyBlockCodec::new;
+    return new LengthPrefixedEncoding(
+        "ssz_snappy",
+        RpcPayloadEncoders.createSszEncoders(),
+        new SnappyFramedCompressor(codecFactory),
+        maxChunkSize);
+  }
+```
+
+(Use proper imports rather than fully-qualified names when implementing; shown qualified here only to be unambiguous.) Keep the existing single-arg `createSszSnappyEncoding(maxChunkSize)` delegating to `createSszSnappyEncoding(maxChunkSize, false)`.
+
+- [ ] **Step 2: Add the config flag (mirror Task 7) and read it at the seam**
+
+- In `P2PConfig.java`: add `DEFAULT_RPC_SNAPPY_USE_AIRCOMPRESSOR = false`, a `boolean rpcSnappyUseAircompressor` builder field + setter + constructor plumbing + `isRpcSnappyUseAircompressor()` getter (RPC encoding is built in `Eth2P2PNetworkBuilder`, not `P2PConfig.build()`, so this one needs a real getter).
+- In `P2POptions.java`: add hidden `--Xp2p-rpc-snappy-aircompressor-enabled` option mirroring Task 7 Step 2 and wire `.rpcSnappyUseAircompressor(...)` into the `builder.p2p(...)` block.
+- In `Eth2P2PNetworkBuilder.java` line 181–182, change:
+
+```java
+    final RpcEncoding rpcEncoding =
+        RpcEncoding.createSszSnappyEncoding(spec.getNetworkingConfig().getMaxPayloadSize());
+```
+
+  to:
+
+```java
+    final RpcEncoding rpcEncoding =
+        RpcEncoding.createSszSnappyEncoding(
+            spec.getNetworkingConfig().getMaxPayloadSize(),
+            config.isRpcSnappyUseAircompressor());
+```
+
+- [ ] **Step 3: Build, test, commit**
+
+Run: `./gradlew :networking:eth2:test :teku:compileJava`
+Expected: BUILD SUCCESSFUL.
+
+```bash
+git add networking/eth2 teku/src/main/java/tech/pegasys/teku/cli/options/P2POptions.java
+git commit -m "Add hidden flag to select aircompressor for RPC Snappy"
+```
+
+---
+
+## Part 2 self-review notes
+
+- Both flags default to `false` (current behaviour). Snappy block and framed are standardized formats, so flags are operational toggles, not protocol changes — a node can run either implementation and stay network-interoperable (proven by the benchmark cross-compat check; re-verified for gossip by Part 1 Task 3).
+- Gossip seam: encoding is resolved in `P2PConfig.Builder.build()` and already plumbed to `Eth2P2PNetworkBuilder:218` and all gossip managers — no downstream changes.
+- RPC seam: `SnappyFramedCompressor` is the single `Compressor` impl for `ssz_snappy`, constructed once in `RpcEncoding.createSszSnappyEncoding` (called from `Eth2P2PNetworkBuilder:182`); the `Compressor`/`Decompressor` interface contract is unchanged, so all RPC call sites are untouched.
+- The aircompressor RPC codec adds one ByteBuf→byte[] copy per chunk; acceptable given the measured Netty→aircompressor speedup, and isolated to the codec class.
+- Rollout: enable gossip flag on a canary, observe, then RPC flag; once proven, flip defaults to aircompressor and remove the snappy-java/Netty-Snappy paths in a later cleanup.
