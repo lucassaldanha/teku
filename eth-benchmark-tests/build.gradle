@@ -27,6 +27,7 @@ dependencies {
 	jmhImplementation testFixtures(project('::networking:eth2'))
 	jmhImplementation 'io.netty:netty-handler'
 	jmhImplementation 'org.xerial.snappy:snappy-java'
+	jmhImplementation 'io.airlift:aircompressor-v3'
 
 	testFixturesImplementation project(':infrastructure:async')
 	testFixturesImplementation project(':infrastructure:bls')
