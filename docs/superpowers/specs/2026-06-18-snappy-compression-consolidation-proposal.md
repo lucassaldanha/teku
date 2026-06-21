@@ -116,7 +116,16 @@ Design decisions:
 - **Engines compared directly.** Each implementation is driven through its raw library API (not
   through Teku's wrapper classes), with `byte[]`↔buffer marshalling included where the library
   requires it, because gossip code speaks byte arrays.
-- **Metrics.** Throughput and average time per op (JMH) plus allocation per op (`-prof gc`).
+- **Metrics.** Throughput and average time per op (JMH), allocation per op (`-prof gc`), **and
+  compression ratio / compressed size per implementation**. Ratio is reported because Snappy fixes
+  the wire format but not the encoder heuristics — a faster encoder that compresses *less* is not
+  actually better for gossip bandwidth, so encode speed must be read alongside output size. Ratio is
+  deterministic, so it is recorded directly in setup rather than via JMH timing counters.
+- **Fair decode comparison.** Every implementation decodes a single shared snappy-java-encoded
+  buffer (all impls are wire-compatible), isolating decoder cost from encoder-specific output shape.
+- **Compressibility probe.** Two synthetic payloads — a highly compressible repeating pattern and a
+  half-random/half-repeating "mixed" 64 KB buffer — exercise the encoder heuristics on compressible
+  data, which the high-entropy SSZ messages cannot.
 - **Correctness / interoperability.** A startup check round-trips every implementation's output
   through snappy-java in both directions, verifying they all share the same Snappy block wire
   format. This is the safety gate for a migration — and, because the aircompressor `*Native*`
@@ -125,10 +134,24 @@ Design decisions:
 
 **Benchmark environment:** local dev machine (darwin/aarch64), JDK 25, JMH 1.37, `-f 1 -wi 2 -i 5`.
 
-**Caveat on the numbers:** the synthetic payloads are high-entropy (random BLS signatures), so the
-*absolute* figures are not representative of mainnet compression ratios. But every implementation
-receives byte-identical input, so the *relative* comparison between them is valid. Real-traffic
-measurement is part of the rollout plan (Section 5).
+**Caveat on the numbers:** the SSZ message payloads are high-entropy (random BLS signatures), so
+their *absolute* compression ratios are not representative of mainnet (real beacon data compresses
+better). But every implementation receives byte-identical input, so both the *relative* speed
+comparison and the *relative* compressed-size comparison between implementations are valid.
+Real-traffic measurement is part of the rollout plan (Section 5).
+
+### 2.4 Related work — internal PR #10861
+
+A parallel benchmark by Dmitrii Shmatko ([PR #10861](https://github.com/Consensys/teku/pull/10861))
+compared **snappy-java vs Netty only**, on synthetic byte patterns (random / repeating / mixed)
+across a 1 KB–1 MB size sweep, and concluded — correctly — that switching from snappy-java to Netty
+would be a large performance regression. Our work agrees (Netty is the weakest option) but goes
+further: it evaluates the **actual proposed replacement (aircompressor-v3)**, which that PR did not
+test, and adds allocation and realistic-message dimensions. We also adopted two strong ideas from
+that PR after review feedback from Enrico Del Fante: reporting **compression ratio** (his point that
+encode speed alone is incomplete, since implementations' compressed sizes can differ) and decoding a
+**shared reference buffer** for a fair decode comparison. The two efforts are complementary and
+reach the same conclusion about Netty.
 
 ---
 
@@ -170,11 +193,42 @@ than snappy-java) but was noisier in the average-time pass; treat it as a tie wi
 - **Netty is the worst allocator** — e.g. beacon-block decompress 284,032 B/op, roughly 5×
   snappy-java.
 
-### 3.4 Interpretation
+### 3.4 Compression ratio / output size (the fairness check)
+
+Compressed size in bytes per implementation (lower = better compression). This is the key check
+raised in review: a faster encoder that produces larger output would cost gossip bandwidth.
+
+| Payload | raw bytes | snappy-java | aircompressor-native | Netty | aircompressor-java |
+|---|---|---|---|---|---|
+| Attestation | 16,621 | 16,623 | 16,623 | 16,622 | 16,622 |
+| AggregateAndProof | 16,829 | 16,835 | 16,835 | 16,835 | 16,835 |
+| SyncCommitteeMessage | 144 | 148 | 148 | 148 | 148 |
+| BeaconBlock | 57,639 | 57,583 | 57,583 | 56,552 | 56,556 |
+| DataColumnSidecar | 17,508 | 17,509 | 17,509 | 17,509 | 17,509 |
+| Synthetic repeating 64 KB | 65,536 | 3,328 | 3,328 | 3,323 | 3,323 |
+| Synthetic mixed 64 KB | 65,536 | 65,542 | 65,542 | 36,320 | 36,320 |
+
+Two clear patterns:
+
+- **aircompressor-native produces byte-identical output to snappy-java on every payload.** A gossip
+  migration from snappy-java to aircompressor-native is therefore **compression-neutral** — exactly
+  the same bytes on the wire as today, so zero bandwidth impact regardless of how compressible the
+  real traffic is. This is the decisive point: the proposed change does not trade compression for
+  speed.
+- **Compression differences exist only between the native and pure-Java *families*, not between
+  brands.** snappy-java ≡ aircompressor-native, and Netty ≡ aircompressor-java. The families diverge
+  on the mixed 64 KB case (pure-Java compresses it ~1.8×; native leaves it essentially uncompressed)
+  — a size/content-dependent heuristic difference, not a regression in any one library. On the
+  high-entropy SSZ messages the difference is negligible (everything is near-incompressible). Since
+  we propose the native path for gossip, we stay on snappy-java's exact compression behaviour.
+
+### 3.5 Interpretation
 
 - **aircompressor-native matches or beats snappy-java on essentially every operation** — equal-or-
   faster compress, clearly faster decompress (the gossip-receive hot path, ~1.3–1.4× on
-  attestations/aggregates/sidecars), and near-identical allocation — while using FFM instead of JNI.
+  attestations/aggregates/sidecars), near-identical allocation, **and byte-identical compression** —
+  while using FFM instead of JNI. It is a strict improvement on the dimension that motivated this
+  work (native-loader fragility) at no cost on any measured dimension.
 - **aircompressor-java is a much better pure-Java option than Netty** — ~2× faster on blocks and
   snappy-java-level allocation on decompress, making it a strong native-free fallback.
 - **Netty is the weakest** of the four for gossip block work and is not a consolidation target.
