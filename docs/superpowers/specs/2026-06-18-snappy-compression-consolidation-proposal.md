@@ -3,21 +3,21 @@
 **Status:** Proposal / for team review
 **Date:** 2026-06-18
 **Author:** Lucas Saldanha
-**Scope:** Teku consensus client — gossip and RPC Snappy compression
+**Scope:** Teku consensus client: gossip and RPC Snappy compression
 
 ---
 
 ## TL;DR
 
 Teku currently uses **two** different Snappy implementations: `snappy-java` (JNI/native C++) for
-gossip messages, and **Netty's** Snappy codec (pure-Java) for RPC. Each has a problem — snappy-java
+gossip messages, and **Netty's** Snappy codec (pure-Java) for RPC. Each has a problem: snappy-java
 ships a native library whose custom loader has caused production startup failures, and Netty's
 pure-Java Snappy is the slowest of the options we measured.
 
 We evaluated alternatives, benchmarked four implementations across realistic gossip payloads, and
 recommend consolidating **both** paths onto a single library: **aircompressor-v3**. Its native
 implementation uses the modern Foreign Function & Memory API (FFM, `java.lang.foreign`) instead of
-JNI — matching or beating snappy-java's speed while removing the native-loader fragility — and it
+JNI, matching or beating snappy-java's speed while removing the native-loader fragility, and it
 ships a competitive pure-Java fallback in the same dependency. We propose rolling it out behind
 per-node feature flags, monitoring on canaries, then making it the default.
 
@@ -25,7 +25,7 @@ per-node feature flags, monitoring on canaries, then making it the default.
 
 ## 1. Background & Motivation
 
-### 1.1 Current state — two Snappy libraries
+### 1.1 Current state: two Snappy libraries
 
 | Path | Library | Implementation | Snappy format |
 |---|---|---|---|
@@ -78,9 +78,9 @@ We looked for a library that is:
 - **Well-maintained** and in active production use elsewhere.
 - **Snappy-capable**, specifically the *block* format gossip requires (the Ethereum gossip spec
   mandates Snappy block; this immediately rules out Zstd-only libraries such as `zstd-jni`).
-- **Robust to deploy** — ideally avoiding the JNI native-loader pattern that caused our incidents,
+- **Reliable to deploy.** Ideally avoiding the JNI native-loader pattern that caused our incidents,
   while still able to reach native-level performance.
-- **Performant** — competitive with the native C++ baseline (snappy-java), especially on the
+- **Performant.** Competitive with the native C++ baseline (snappy-java), especially on the
   large payloads (beacon blocks, data-column sidecars) that matter most under load.
 
 ### 2.2 Candidate review
@@ -89,7 +89,7 @@ We looked for a library that is:
 |---|---|
 | **snappy-java** (status quo) | Best-maintained *JNI* Snappy binding, but the JNI native loader is exactly the liability we want to remove. |
 | **Netty Snappy** (status quo) | Pure-Java, no native dependency, but slowest/highest-allocation in our tests. |
-| **zstd-jni** | Well-maintained native binding, but **Zstandard only** — cannot serve the Snappy wire format gossip requires. Ruled out. |
+| **zstd-jni** | Well-maintained native binding, but **Zstandard only**: cannot serve the Snappy wire format gossip requires. Ruled out. |
 | **aircompressor-v3** | **Selected.** Apache-2.0, actively maintained, used in production by Trino. Provides Snappy **block** format in both a native implementation (via FFM, not JNI) and a pure-Java implementation in one dependency. |
 
 **Why aircompressor-v3's native path is different:** it uses the Foreign Function & Memory API
@@ -103,32 +103,32 @@ already runs on Java 25, so the Java 22+ requirement is satisfied.
 We built a JMH micro-benchmark (`SnappyCompressionBenchmark` in `eth-benchmark-tests`) comparing
 four implementations:
 
-- `SNAPPY_JAVA` — snappy-java (current gossip)
-- `NETTY` — Netty Snappy (current RPC)
-- `AIRCOMPRESSOR_NATIVE` — aircompressor-v3 FFM-native
-- `AIRCOMPRESSOR_JAVA` — aircompressor-v3 pure-Java
+- `SNAPPY_JAVA`: snappy-java (current gossip)
+- `NETTY`: Netty Snappy (current RPC)
+- `AIRCOMPRESSOR_NATIVE`: aircompressor-v3 FFM-native
+- `AIRCOMPRESSOR_JAVA`: aircompressor-v3 pure-Java
 
 Design decisions:
 
 - **Realistic payloads.** SSZ-serialized gossip message types across the real size spectrum:
   attestation, aggregate-and-proof, sync-committee message, a full beacon block, and a data-column
-  sidecar — generated with a fixed seed for reproducibility.
+  sidecar, generated with a fixed seed for reproducibility.
 - **Engines compared directly.** Each implementation is driven through its raw library API (not
   through Teku's wrapper classes), with `byte[]`↔buffer marshalling included where the library
   requires it, because gossip code speaks byte arrays.
 - **Metrics.** Throughput and average time per op (JMH), allocation per op (`-prof gc`), **and
   compression ratio / compressed size per implementation**. Ratio is reported because Snappy fixes
-  the wire format but not the encoder heuristics — a faster encoder that compresses *less* is not
+  the wire format but not the encoder heuristics. A faster encoder that compresses *less* is not
   actually better for gossip bandwidth, so encode speed must be read alongside output size. Ratio is
   deterministic, so it is recorded directly in setup rather than via JMH timing counters.
 - **Fair decode comparison.** Every implementation decodes a single shared snappy-java-encoded
   buffer (all impls are wire-compatible), isolating decoder cost from encoder-specific output shape.
-- **Compressibility probe.** Two synthetic payloads — a highly compressible repeating pattern and a
-  half-random/half-repeating "mixed" 64 KB buffer — exercise the encoder heuristics on compressible
+- **Compressibility probe.** Two synthetic payloads (a highly compressible repeating pattern and a
+  half-random/half-repeating "mixed" 64 KB buffer) exercise the encoder heuristics on compressible
   data, which the high-entropy SSZ messages cannot.
 - **Correctness / interoperability.** A startup check round-trips every implementation's output
   through snappy-java in both directions, verifying they all share the same Snappy block wire
-  format. This is the safety gate for a migration — and, because the aircompressor `*Native*`
+  format. This is the safety gate for a migration, and because the aircompressor `*Native*`
   classes have no silent pure-Java fallback, a passing run also proves the FFM native library
   actually loaded and executed.
 
@@ -140,11 +140,11 @@ better). But every implementation receives byte-identical input, so both the *re
 comparison and the *relative* compressed-size comparison between implementations are valid.
 Real-traffic measurement is part of the rollout plan (Section 5).
 
-### 2.4 Related work — internal PR #10861
+### 2.4 Related work: internal PR #10861
 
 A parallel benchmark by Dmitrii Shmatko ([PR #10861](https://github.com/Consensys/teku/pull/10861))
 compared **snappy-java vs Netty only**, on synthetic byte patterns (random / repeating / mixed)
-across a 1 KB–1 MB size sweep, and concluded — correctly — that switching from snappy-java to Netty
+across a 1 KB–1 MB size sweep, and concluded, correctly, that switching from snappy-java to Netty
 would be a large performance regression. Our work agrees (Netty is the weakest option) but goes
 further: it evaluates the **actual proposed replacement (aircompressor-v3)**, which that PR did not
 test, and adds allocation and realistic-message dimensions. We also adopted two strong ideas from
@@ -161,10 +161,10 @@ reach the same conclusion about Netty.
 
 ✅ All four implementations produce and consume a mutually-decodable Snappy block wire format, in
 both directions against snappy-java. A node running any of them stays interoperable with the
-network. (Both Snappy block and Snappy framed are standardized formats — switching implementation is
-not a protocol change.)
+network. (Both Snappy block and Snappy framed are standardized formats, so switching implementation
+is not a protocol change.)
 
-### 3.2 Performance — average time per operation (µs/op, lower is better)
+### 3.2 Performance: average time per operation (µs/op, lower is better)
 
 Bold = fastest in that row.
 
@@ -186,17 +186,17 @@ than snappy-java) but was noisier in the average-time pass; treat it as a tie wi
 
 ### 3.3 Allocation per operation (`gc.alloc.rate.norm`, bytes/op, lower is better)
 
-- **aircompressor-native ≈ snappy-java** — within ~24 B/op (e.g. beacon-block decompress 57,680 vs
+- **aircompressor-native ≈ snappy-java**: within ~24 B/op (e.g. beacon-block decompress 57,680 vs
   57,656; compress 124,920 vs 124,896).
 - **aircompressor-java** matches snappy-java exactly on decompress (e.g. 57,656 B/op for a block),
   and allocates ~2× on compress.
-- **Netty is the worst allocator** — e.g. beacon-block decompress 284,032 B/op, roughly 5×
+- **Netty is the worst allocator**: e.g. beacon-block decompress 284,032 B/op, roughly 5×
   snappy-java.
 
 ### 3.4 Compression ratio / output size (the fairness check)
 
-Compressed size in bytes per implementation (lower = better compression). This is the key check
-raised in review: a faster encoder that produces larger output would cost gossip bandwidth.
+Compressed size in bytes per implementation (lower = better compression). Review raised this check:
+a faster encoder that produces larger output would cost gossip bandwidth.
 
 | Payload | raw bytes | snappy-java | aircompressor-native | Netty | aircompressor-java |
 |---|---|---|---|---|---|
@@ -211,25 +211,24 @@ raised in review: a faster encoder that produces larger output would cost gossip
 Two clear patterns:
 
 - **aircompressor-native produces byte-identical output to snappy-java on every payload.** A gossip
-  migration from snappy-java to aircompressor-native is therefore **compression-neutral** — exactly
+  migration from snappy-java to aircompressor-native is therefore **compression-neutral**: exactly
   the same bytes on the wire as today, so zero bandwidth impact regardless of how compressible the
-  real traffic is. This is the decisive point: the proposed change does not trade compression for
-  speed.
+  real traffic is. The proposed change does not trade compression for speed.
 - **Compression differences exist only between the native and pure-Java *families*, not between
   brands.** snappy-java ≡ aircompressor-native, and Netty ≡ aircompressor-java. The families diverge
-  on the mixed 64 KB case (pure-Java compresses it ~1.8×; native leaves it essentially uncompressed)
-  — a size/content-dependent heuristic difference, not a regression in any one library. On the
+  on the mixed 64 KB case (pure-Java compresses it ~1.8×; native leaves it essentially uncompressed),
+  a size/content-dependent heuristic difference, not a regression in any one library. On the
   high-entropy SSZ messages the difference is negligible (everything is near-incompressible). Since
   we propose the native path for gossip, we stay on snappy-java's exact compression behaviour.
 
 ### 3.5 Interpretation
 
-- **aircompressor-native matches or beats snappy-java on essentially every operation** — equal-or-
+- **aircompressor-native matches or beats snappy-java on essentially every operation**: equal-or-
   faster compress, clearly faster decompress (the gossip-receive hot path, ~1.3–1.4× on
-  attestations/aggregates/sidecars), near-identical allocation, **and byte-identical compression** —
-  while using FFM instead of JNI. It is a strict improvement on the dimension that motivated this
-  work (native-loader fragility) at no cost on any measured dimension.
-- **aircompressor-java is a much better pure-Java option than Netty** — ~2× faster on blocks and
+  attestations/aggregates/sidecars), near-identical allocation, **and byte-identical compression**,
+  while using FFM instead of JNI. It removes the native-loader fragility that motivated this work
+  without regressing any dimension we measured.
+- **aircompressor-java is a much better pure-Java option than Netty**: ~2× faster on blocks and
   snappy-java-level allocation on decompress, making it a strong native-free fallback.
 - **Netty is the weakest** of the four for gossip block work and is not a consolidation target.
 
@@ -243,8 +242,8 @@ snappy-java (gossip) and Netty's Snappy (RPC).
 ### 4.1 Gossip (replaces snappy-java)
 
 Gossip block compression is encapsulated in a single class, `SnappyBlockCompressor`. We turn it into
-an interface with two implementations — `SnappyJavaBlockCompressor` (the existing behaviour) and
-`AircompressorSnappyBlockCompressor` (new) — selected at runtime. The new implementation:
+an interface with two implementations, `SnappyJavaBlockCompressor` (the existing behaviour) and
+`AircompressorSnappyBlockCompressor` (new), selected at runtime. The new implementation:
 
 - uses aircompressor's `SnappyCompressor.create()` / `SnappyDecompressor.create()` factories
   (native when available, automatic pure-Java fallback otherwise);
@@ -276,11 +275,11 @@ project-wide.
 
 ## 5. Rollout Plan
 
-Because both Snappy formats are standardized, switching implementation is **not** a protocol change —
+Because both Snappy formats are standardized, switching implementation is **not** a protocol change:
 a node can run either implementation and stay interoperable. This lets us roll out gradually and
 roll back instantly via configuration, with no network-compatibility risk.
 
-### 5.1 Phase 1 — ship behind hidden feature flags (default OFF)
+### 5.1 Phase 1: ship behind hidden feature flags (default OFF)
 
 Add two hidden, experimental CLI flags (defaulting to current behaviour):
 
@@ -290,7 +289,7 @@ Add two hidden, experimental CLI flags (defaulting to current behaviour):
 Both implementations coexist in the binary; the flags select which is used. Default-off means a
 normal release changes nothing until an operator opts in.
 
-### 5.2 Phase 2 — canary + monitoring
+### 5.2 Phase 2: canary + monitoring
 
 Enable the **gossip** flag on a small number of our own nodes (hoodi/mainnet canaries) and observe:
 
@@ -299,19 +298,19 @@ Enable the **gossip** flag on a small number of our own nodes (hoodi/mainnet can
 - **Native engagement:** confirm the FFM native path actually loaded (vs falling back to pure-Java)
   on the target platform/architecture.
 - **Resource & health metrics:** CPU, allocation/GC pressure, gossip processing latency, missed/late
-  attestations, peer scores — compared against control nodes on the default path.
+  attestations, peer scores, compared against control nodes on the default path.
 - **Interoperability in the wild:** canary nodes continue to gossip successfully with the rest of
   the network.
 
 Then repeat for the **RPC** flag.
 
-### 5.3 Phase 3 — real-traffic benchmarking
+### 5.3 Phase 3: real-traffic benchmarking
 
 Supplement the synthetic JMH results with measurements on representative mainnet data (real beacon
 blocks and data-column sidecars, which have realistic, more-compressible content), to confirm the
 relative performance and allocation advantages hold on production traffic, not just synthetic input.
 
-### 5.4 Phase 4 — make it the default
+### 5.4 Phase 4: make it the default
 
 Once the canary period is clean and the real-traffic numbers confirm the benefit:
 
@@ -339,7 +338,7 @@ implementation immediately, with no redeploy of a different artifact required.
 - **Thread-safety.** aircompressor's compressor/decompressor instances are stateless and safe to
   share across the concurrent gossip threads; the implementation plan includes a concurrency test to
   verify this.
-- **Java version.** Requires Java 22+ for FFM. Teku is on Java 25 — satisfied.
+- **Java version.** Requires Java 22+ for FFM. Teku is on Java 25, so this is satisfied.
 - **Security advisory.** A historical advisory affected aircompressor's *pure-Java* decompressors on
   malformed input with reused output buffers; it is fixed in the version we target, and our code
   always decompresses into a freshly allocated, exactly-sized buffer, so it does not apply.
@@ -362,7 +361,7 @@ Benchmark source: `eth-benchmark-tests/src/jmh/java/tech/pegasys/teku/benchmarks
 
 ### B. Library details
 
-- **aircompressor-v3** — `io.airlift:aircompressor-v3` (latest 3.5 at time of writing), Apache-2.0,
+- **aircompressor-v3**: `io.airlift:aircompressor-v3` (latest 3.5 at time of writing), Apache-2.0,
   used by Trino. Native via `java.lang.foreign`; classes `SnappyNativeCompressor`/`Decompressor`
   (FFM native) and `SnappyJavaCompressor`/`Decompressor` (pure-Java), selected by
   `SnappyCompressor.create()` / `SnappyDecompressor.create()`.
