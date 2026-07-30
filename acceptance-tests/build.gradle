@@ -1,7 +1,7 @@
 // web3j was removed from acceptance-tests; guard against it creeping back in as a direct dependency.
-// Scoped to this project only: io.consensys.protocols:jc-kzg-4844 (used across the codebase, including
-// production code, via infrastructure:kzg) has a genuine transitive dependency on org.web3j:core, so a
-// repo-wide exclude in the root build.gradle breaks compilation of unrelated modules.
+// Scoped to this project only: org.hyperledger.besu.internal:besu-ethereum-core (pulled in via
+// ethereum:spec and used throughout production code) has a genuine transitive dependency on
+// org.web3j:core, so a repo-wide exclude in the root build.gradle breaks compilation elsewhere.
 configurations.all {
 	exclude group: 'org.web3j'
 }
