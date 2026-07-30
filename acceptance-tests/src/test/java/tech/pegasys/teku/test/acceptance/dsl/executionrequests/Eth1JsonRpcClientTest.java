@@ -153,4 +153,19 @@ class Eth1JsonRpcClientTest {
         .hasMessageContaining("eth_sendRawTransaction")
         .hasMessageContaining("500");
   }
+
+  @Test
+  void sendRequest_failsFutureWithMethodNameWhenResponseHasNeitherErrorNorResult() {
+    mockWebServer.enqueue(
+        new MockResponse()
+            .setBody("{\"jsonrpc\":\"2.0\",\"id\":1}")
+            .addHeader("Content-Type", "application/json"));
+
+    final SafeFuture<String> future = client.ethSendRawTransaction(Bytes.fromHexString("0x1234"));
+
+    assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+        .isInstanceOf(ExecutionException.class)
+        .cause()
+        .hasMessageContaining("eth_sendRawTransaction");
+  }
 }

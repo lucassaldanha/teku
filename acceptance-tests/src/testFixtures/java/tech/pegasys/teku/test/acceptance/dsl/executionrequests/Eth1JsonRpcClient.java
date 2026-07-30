@@ -64,19 +64,19 @@ public class Eth1JsonRpcClient {
     callObject.put("to", to.toHexString());
     callObject.put("data", data.toHexString());
     return sendRequest("eth_call", List.of(callObject, blockParameter))
-        .thenApply(result -> Bytes.fromHexString(result.asText()));
+        .thenApply(result -> Bytes.fromHexString(requireResult("eth_call", result).asText()));
   }
 
   public SafeFuture<UInt64> ethGetTransactionCount(
       final Eth1Address address, final String blockParameter) {
     return sendRequest("eth_getTransactionCount", List.of(address.toHexString(), blockParameter))
-        .thenApply(Eth1JsonRpcClient::decodeQuantity);
+        .thenApply(result -> decodeQuantity("eth_getTransactionCount", result));
   }
 
   /** Submits a signed raw transaction, returning the resulting transaction hash. */
   public SafeFuture<String> ethSendRawTransaction(final Bytes signedTx) {
     return sendRequest("eth_sendRawTransaction", List.of(signedTx.toHexString()))
-        .thenApply(JsonNode::asText);
+        .thenApply(result -> requireResult("eth_sendRawTransaction", result).asText());
   }
 
   public SafeFuture<Optional<TransactionReceipt>> ethGetTransactionReceipt(final String txHash) {
@@ -95,10 +95,23 @@ public class Eth1JsonRpcClient {
             result.path("blockNumber").asText(null)));
   }
 
-  private static UInt64 decodeQuantity(final JsonNode result) {
-    final String hex = result.asText();
+  private static UInt64 decodeQuantity(final String method, final JsonNode result) {
+    final String hex = requireResult(method, result).asText();
     final String unprefixed = hex.startsWith("0x") ? hex.substring(2) : hex;
     return UInt64.valueOf(new BigInteger(unprefixed.isEmpty() ? "0" : unprefixed, 16));
+  }
+
+  /**
+   * Guards against a malformed JSON-RPC response that has neither {@code error} nor {@code result},
+   * which would otherwise surface as a bare {@link NullPointerException}. Not used by {@link
+   * #decodeReceipt}, for which a null result is a legitimate "pending transaction" response.
+   */
+  private static JsonNode requireResult(final String method, final JsonNode result) {
+    if (result == null || result.isNull()) {
+      throw new RuntimeException(
+          "JSON-RPC call to " + method + " returned a response with neither error nor result");
+    }
+    return result;
   }
 
   private SafeFuture<JsonNode> sendRequest(final String method, final List<Object> params) {

@@ -22,8 +22,8 @@ class Eth1CredentialsTest {
 
   // BesuNode.getRichBenefactorKey()/getRichBenefactorAddress() are instance methods on a class
   // that otherwise requires a testcontainers Network and docker image to construct, so (matching
-  // the precedent set by Web3jGoldenVectorGeneratorTest) the values are reproduced here rather
-  // than instantiating a BesuNode in this plain unit test.
+  // the same account used in the legacy-tx-golden-vectors.json fixture) the values are reproduced
+  // here rather than instantiating a BesuNode in this plain unit test.
   private static final String RICH_BENEFACTOR_PRIVATE_KEY =
       "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63";
   private static final String RICH_BENEFACTOR_ADDRESS =

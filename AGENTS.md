@@ -254,7 +254,7 @@ ServiceController
 - `ExecutionLayerManager` orchestrates EL interactions
 - `ExecutionEngineClient` implements Engine API (newPayload, forkchoiceUpdated)
 - `BuilderClient` integrates with MEV-Boost builders
-- Supports Web3j and REST transport layers
+- Supports HTTP, WebSocket, and IPC socket transport layers
 
 **storage/** - Database and state management
 - Multiple storage modes: ARCHIVE, PRUNE_ANCIENT_STATES, PRUNE_HOT_STATES

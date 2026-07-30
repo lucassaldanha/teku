@@ -97,6 +97,8 @@ class LegacyTransactionSignerTest {
 
     // RLP represents the integer zero as the empty byte string, never as a single 0x00 byte.
     assertThat(decoded.nonce).isEqualTo(Bytes.EMPTY);
+    // Signed without a chain id, so v is the pre-EIP-155 27/28, never a chainId-derived value.
+    assertThat(decoded.v).isIn(Bytes.of(0x1b), Bytes.of(0x1c));
   }
 
   @Test
