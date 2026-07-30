@@ -15,11 +15,8 @@ package tech.pegasys.teku.test.acceptance.dsl.executionrequests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.math.BigInteger;
-import java.util.NoSuchElementException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import okhttp3.ConnectionPool;
 import okhttp3.OkHttpClient;
@@ -32,12 +29,7 @@ import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 
 public class ExecutionRequestsService implements AutoCloseable {
 
-  // Increase the poll rate for tx receipts but keep the default 10 min timeout.
-  private static final int POLL_INTERVAL_MILLIS = 2000;
-  private static final int MAX_POLL_ATTEMPTS = 300;
-
   private final OkHttpClient httpClient;
-  private final ScheduledExecutorService executorService;
   private final Eth1JsonRpcClient client;
   private final Eth1Credentials eth1Credentials;
   private final WithdrawalRequestContract withdrawalRequestContract;
@@ -58,13 +50,6 @@ public class ExecutionRequestsService implements AutoCloseable {
       final Eth1Address withdrawalRequestAddress,
       final Eth1Address consolidationRequestAddress) {
     this.httpClient = new OkHttpClient.Builder().connectionPool(new ConnectionPool()).build();
-    this.executorService =
-        Executors.newScheduledThreadPool(
-            1,
-            new ThreadFactoryBuilder()
-                .setDaemon(true)
-                .setNameFormat("executionRequests-%d")
-                .build());
     this.client = new Eth1JsonRpcClient(eth1NodeUrl, httpClient);
     this.eth1Credentials = eth1Credentials;
 
@@ -79,7 +64,6 @@ public class ExecutionRequestsService implements AutoCloseable {
   public void close() {
     httpClient.dispatcher().executorService().shutdownNow();
     httpClient.connectionPool().evictAll();
-    executorService.shutdownNow();
   }
 
   public SafeFuture<TransactionReceipt> createWithdrawalRequest(
@@ -152,32 +136,7 @@ public class ExecutionRequestsService implements AutoCloseable {
   }
 
   private SafeFuture<TransactionReceipt> getTransactionReceipt(final String txHash) {
-    return pollForReceipt(txHash, MAX_POLL_ATTEMPTS);
-  }
-
-  private SafeFuture<TransactionReceipt> pollForReceipt(
-      final String txHash, final int attemptsRemaining) {
-    return client
-        .ethGetTransactionReceipt(txHash)
-        .thenCompose(
-            maybeReceipt -> {
-              if (maybeReceipt.isPresent()) {
-                return SafeFuture.completedFuture(maybeReceipt.get());
-              }
-              if (attemptsRemaining <= 1) {
-                return SafeFuture.<TransactionReceipt>failedFuture(
-                    new NoSuchElementException("No transaction receipt found for " + txHash));
-              }
-              return delay(POLL_INTERVAL_MILLIS)
-                  .thenCompose(__ -> pollForReceipt(txHash, attemptsRemaining - 1));
-            });
-  }
-
-  private SafeFuture<Void> delay(final long millis) {
-    final SafeFuture<Void> future = new SafeFuture<>();
-    final var unused =
-        executorService.schedule(() -> future.complete(null), millis, TimeUnit.MILLISECONDS);
-    return future;
+    return client.ethGetTransactionReceipt(txHash).thenApply(Optional::orElseThrow);
   }
 
   private void waitForSuccessfulTransaction(final String txHash) {
