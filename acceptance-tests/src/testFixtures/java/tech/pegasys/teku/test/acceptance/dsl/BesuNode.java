@@ -36,8 +36,6 @@ import org.apache.logging.log4j.Logger;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.HttpWaitStrategy;
 import org.testcontainers.utility.MountableFile;
-import org.web3j.crypto.Credentials;
-import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import tech.pegasys.teku.bls.BLSPublicKey;
 import tech.pegasys.teku.ethereum.execution.types.Eth1Address;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
@@ -46,7 +44,9 @@ import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 import tech.pegasys.teku.spec.Spec;
 import tech.pegasys.teku.spec.datastructures.execution.ExecutionPayloadHeader;
 import tech.pegasys.teku.spec.datastructures.interop.MergedGenesisTestBuilder;
+import tech.pegasys.teku.test.acceptance.dsl.executionrequests.Eth1Credentials;
 import tech.pegasys.teku.test.acceptance.dsl.executionrequests.ExecutionRequestsService;
+import tech.pegasys.teku.test.acceptance.dsl.executionrequests.TransactionReceipt;
 
 public class BesuNode extends Node {
 
@@ -216,7 +216,7 @@ public class BesuNode extends Node {
   public void createWithdrawalRequest(
       final String eth1PrivateKey, final BLSPublicKey publicKey, final UInt64 amountInGwei)
       throws Exception {
-    final Credentials eth1Credentials = Credentials.create(eth1PrivateKey);
+    final Eth1Credentials eth1Credentials = Eth1Credentials.fromHexKey(eth1PrivateKey);
     try (final ExecutionRequestsService executionRequestsService =
         new ExecutionRequestsService(
             getExternalJsonRpcUrl(),
@@ -244,7 +244,7 @@ public class BesuNode extends Node {
       final BLSPublicKey sourceValidatorPublicKey,
       final BLSPublicKey targetValidatorPublicKey)
       throws Exception {
-    final Credentials eth1Credentials = Credentials.create(eth1PrivateKey);
+    final Eth1Credentials eth1Credentials = Eth1Credentials.fromHexKey(eth1PrivateKey);
     try (final ExecutionRequestsService executionRequestsService =
         new ExecutionRequestsService(
             getExternalJsonRpcUrl(),

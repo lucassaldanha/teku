@@ -17,12 +17,6 @@ import java.math.BigInteger;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.hyperledger.besu.datatypes.GWei;
-import org.web3j.protocol.Web3j;
-import org.web3j.protocol.core.DefaultBlockParameter;
-import org.web3j.protocol.core.methods.request.Transaction;
-import org.web3j.protocol.core.methods.response.EthSendTransaction;
-import org.web3j.tx.TransactionManager;
-import org.web3j.utils.Async;
 import tech.pegasys.teku.bls.BLSPublicKey;
 import tech.pegasys.teku.ethereum.execution.types.Eth1Address;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
@@ -34,30 +28,25 @@ import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 public class WithdrawalRequestContract {
 
   private final Eth1Address contractAddress;
-  private final TransactionManager transactionManager;
-  private final Web3j web3j;
+  private final Eth1JsonRpcClient client;
+  private final TransactionSender transactionSender;
 
   public WithdrawalRequestContract(
       final Eth1Address contractAddress,
-      final Web3j web3j,
-      final TransactionManager transactionManager) {
+      final Eth1JsonRpcClient client,
+      final TransactionSender transactionSender) {
     this.contractAddress = contractAddress;
-    this.web3j = web3j;
-    this.transactionManager = transactionManager;
+    this.client = client;
+    this.transactionSender = transactionSender;
   }
 
   public SafeFuture<Integer> getExcessWithdrawalRequests() {
-    return SafeFuture.of(
-        web3j
-            .ethCall(
-                Transaction.createEthCallTransaction(
-                    Eth1Address.ZERO.toHexString(), contractAddress.toHexString(), ""),
-                DefaultBlockParameter.valueOf("latest"))
-            .sendAsync()
-            .thenApply(response -> UInt256.fromHexString(response.getResult()).toInt()));
+    return client
+        .ethCall(contractAddress, Bytes.EMPTY, "latest")
+        .thenApply(bytes -> UInt256.fromBytes(bytes).toInt());
   }
 
-  public SafeFuture<EthSendTransaction> createWithdrawalRequest(
+  public SafeFuture<String> createWithdrawalRequest(
       final BLSPublicKey publicKey, final UInt64 amount) {
     final BigInteger gasPrice = BigInteger.valueOf(1_000);
     final BigInteger gasLimit = BigInteger.valueOf(1_000_000);
@@ -65,10 +54,6 @@ public class WithdrawalRequestContract {
         Bytes.concatenate(publicKey.toBytesCompressed(), GWei.of(amount.longValue()).toBytes());
     final BigInteger value = BigInteger.valueOf(2); // has to be more than current fee (0)
 
-    return SafeFuture.of(
-        Async.run(
-            () ->
-                transactionManager.sendTransaction(
-                    gasPrice, gasLimit, contractAddress.toHexString(), data.toHexString(), value)));
+    return transactionSender.sendTransaction(gasPrice, gasLimit, contractAddress, value, data);
   }
 }
