@@ -14,14 +14,12 @@
 package tech.pegasys.teku.test.acceptance.dsl.executionrequests;
 
 import java.math.BigInteger;
-import java.security.Security;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.crypto.Hash;
 import org.apache.tuweni.crypto.SECP256K1;
 import org.apache.tuweni.rlp.RLP;
 import org.apache.tuweni.rlp.RLPWriter;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import tech.pegasys.teku.ethereum.execution.types.Eth1Address;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 
@@ -32,14 +30,13 @@ import tech.pegasys.teku.infrastructure.unsigned.UInt64;
  * <p>The acceptance test besu node's eth1 credentials sign without a chain id (matching web3j's
  * behaviour when its transaction manager is constructed with {@code ChainId.NONE}), so {@code v =
  * 27 + recoveryId} and no chain id appears anywhere in the encoding, unsigned or signed.
+ *
+ * <p>{@code sign} always takes an {@link Eth1Credentials} argument, so that class's static
+ * initializer (which registers the BouncyCastle security provider tuweni's {@code SECP256K1}
+ * requires) is guaranteed to have already run by the time any signing happens here; this class does
+ * not repeat that registration.
  */
 public class LegacyTransactionSigner {
-
-  static {
-    // See Eth1Credentials for why this registration is required; repeated here so signing works
-    // independently of whether an Eth1Credentials has already triggered it.
-    Security.addProvider(new BouncyCastleProvider());
-  }
 
   private static final BigInteger V_OFFSET = BigInteger.valueOf(27);
 

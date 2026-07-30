@@ -54,6 +54,9 @@ class LegacyTransactionSignerTest {
       assertThat(in).as("golden vectors fixture on the test classpath").isNotNull();
       vectors = objectMapper.readTree(in);
     }
+    // This @TestFactory is the oracle for the whole signer: an empty (or emptied) fixture would
+    // otherwise decode to zero elements and pass vacuously as a container with no children.
+    assertThat(vectors).hasSize(3);
 
     final Iterator<JsonNode> iterator = vectors.elements();
     final Stream.Builder<JsonNode> streamBuilder = Stream.builder();
