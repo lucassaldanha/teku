@@ -12,6 +12,7 @@
  - Removed the GetDepositSnapshot RPC endpoint, which has been deprecated and removed since v3.0.0 of the Beacon API spec.
 
 ### Additions and Improvements
+ - Removed web3j entirely from the codebase. The acceptance-tests module, the last remaining user, now signs transactions and makes Eth1 JSON-RPC calls using tuweni and a purpose-built lightweight client instead. Teku no longer depends on web3j for any purpose.
 
 ### Bug Fixes
  - Fixed Beacon REST API socket retention when clients cancel pending asynchronous requests. Requests now time out after 30 seconds.
