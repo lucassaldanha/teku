@@ -74,6 +74,7 @@ dependencyManagement {
 		dependencySet(group: 'io.consensys.tuweni', version: '2.7.2') {
 			entry 'tuweni-bytes'
 			entry 'tuweni-crypto'
+			entry 'tuweni-rlp'
 			entry 'tuweni-ssz'
 			entry 'tuweni-units'
 		}

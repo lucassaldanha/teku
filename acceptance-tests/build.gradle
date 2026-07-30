@@ -3,12 +3,15 @@ dependencies {
 	// TODO(web3j-removal): temporary, delete with the generator in Task 5
 	testImplementation 'org.web3j:core'
 
-	// Eth1JsonRpcClient unit test: testFixturesImplementation dependencies aren't visible from
-	// the test source set, so the client's own dependencies are repeated here.
+	// Eth1JsonRpcClient/LegacyTransactionSigner/Eth1Credentials unit tests:
+	// testFixturesImplementation dependencies aren't visible from the test source set, so those
+	// classes' own dependencies are repeated here.
 	testImplementation project(':ethereum:execution-types')
 	testImplementation project(':infrastructure:bytes')
 	testImplementation project(':infrastructure:async')
 	testImplementation 'io.consensys.tuweni:tuweni-bytes'
+	testImplementation 'io.consensys.tuweni:tuweni-crypto'
+	testImplementation 'io.consensys.tuweni:tuweni-rlp'
 	testImplementation 'com.squareup.okhttp3:okhttp'
 	testImplementation 'com.squareup.okhttp3:mockwebserver'
 	testImplementation 'com.fasterxml.jackson.core:jackson-databind'
@@ -43,6 +46,8 @@ dependencies {
 	testFixturesImplementation 'org.apache.commons:commons-lang3'
 	testFixturesImplementation 'commons-io:commons-io'
 	testFixturesImplementation 'io.consensys.tuweni:tuweni-bytes'
+	testFixturesImplementation 'io.consensys.tuweni:tuweni-crypto'
+	testFixturesImplementation 'io.consensys.tuweni:tuweni-rlp'
 	testFixturesImplementation 'org.junit.jupiter:junit-jupiter-api'
 	testFixturesImplementation 'org.testcontainers:testcontainers'
 	testFixturesImplementation 'org.testcontainers:junit-jupiter'
