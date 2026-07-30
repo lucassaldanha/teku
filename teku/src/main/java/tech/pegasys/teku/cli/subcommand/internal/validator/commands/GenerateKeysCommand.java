@@ -45,7 +45,7 @@ public class GenerateKeysCommand implements Runnable {
 
   public GenerateKeysCommand() {
     this.shutdownFunction =
-        System::exit; // required because web3j uses non-daemon threads which halts the program
+        System::exit; // ensures the JVM exits even if a dependency starts non-daemon threads
   }
 
   @VisibleForTesting

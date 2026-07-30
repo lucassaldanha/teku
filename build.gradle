@@ -362,7 +362,6 @@ allprojects {
 			target fileTree('.') {
 				include '**/*.java'
 				exclude '**/.gradle/**'
-				exclude 'web3j'
 				//Excluding tech.pegasys.teku.datastructures due to preferred formatting overwritten by plugin in getConstantsAsString.
 				exclude '**/src/main/java/tech/pegasys/teku/Constants.java'
 				exclude '**/proto'

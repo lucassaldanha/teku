@@ -126,10 +126,6 @@ dependencyManagement {
 		dependency 'org.fusesource.leveldbjni:leveldbjni:1.8'
 		dependency 'tech.pegasys:leveldb-native:0.3.1'
 
-		dependencySet(group: "org.web3j", version: "6.0.0") {
-			entry 'core'
-		}
-
 		dependency 'org.xerial.snappy:snappy-java:1.1.10.7'
 		dependency 'io.airlift:aircompressor-v3:3.6'
 
