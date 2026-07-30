@@ -1,5 +1,7 @@
 dependencies {
 	testImplementation 'io.consensys.tuweni:tuweni-units'
+	// TODO(web3j-removal): temporary, delete with the generator in Task 5
+	testImplementation 'org.web3j:core'
 
 	acceptanceTestImplementation project(":infrastructure:bls")
 	acceptanceTestImplementation project(':infrastructure:time')

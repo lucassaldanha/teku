@@ -1,0 +1,38 @@
+[
+  {
+    "name": "withdrawal",
+    "privateKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
+    "nonce": 0,
+    "gasPrice": 1000,
+    "gasLimit": 1000000,
+    "to": "0x00000961Ef480Eb55e80D19ad83579A64c007002",
+    "value": 2,
+    "data": "0xa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf0000000000000000",
+    "expectedRawTx": "0xf89b808203e8830f42409400000961ef480eb55e80d19ad83579a64c00700202b838a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf00000000000000001ba03698262c6a9c3f4d7cbabfb7ec991d9415bffea4e2fb82762da9a8f132ea97aba04dbc45df6b755615e5270681ea257490e7b7475ef133673407f8e0b32f6f1a93",
+    "expectedSender": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73"
+  },
+  {
+    "name": "consolidation",
+    "privateKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
+    "nonce": 0,
+    "gasPrice": 1000,
+    "gasLimit": 1000000,
+    "to": "0x0000BBdDc7CE488642fb579F8B00f3a590007251",
+    "value": 2,
+    "data": "0xb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+    "expectedRawTx": "0xf8c3808203e8830f4240940000bbddc7ce488642fb579f8b00f3a59000725102b860b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef1ba05cd9b92bf2993355367ff8202c908af89f928f0255b71375e4f3cafd2da2469ca06d9c260e3280801fa6c6afe31ecb4de3a9660279d985e0008d5dcc78f201059f",
+    "expectedSender": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73"
+  },
+  {
+    "name": "withdrawal-nonce-7",
+    "privateKey": "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
+    "nonce": 7,
+    "gasPrice": 1000,
+    "gasLimit": 1000000,
+    "to": "0x00000961Ef480Eb55e80D19ad83579A64c007002",
+    "value": 2,
+    "data": "0xa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf0000000000000000",
+    "expectedRawTx": "0xf89b078203e8830f42409400000961ef480eb55e80d19ad83579a64c00700202b838a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf00000000000000001ca0bb51c4cdc19517ea2bb1d6a9002b51d062c0956f7504c276572d6ff6e8bbb0eca0029e60bac6683888ad7275bf2c4a85890d31fbf378de9cb222cddc43613dbe0b",
+    "expectedSender": "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73"
+  }
+]
