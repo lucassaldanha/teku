@@ -7,13 +7,11 @@ import groovy.json.JsonBuilder
 import groovy.json.JsonSlurper
 import groovy.xml.XmlSlurper
 import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -169,21 +167,22 @@ abstract class CheckBesuPrometheusVersionCompatibility extends DefaultTask {
 	}
 }
 
-abstract class DeleteDistributionArchives extends DefaultTask {
-	@Internal
-	abstract DirectoryProperty getDistributionDirectory()
+class DeleteDistributionArchives implements Action<Task>, Serializable {
+	private final File distributionDirectory
+	private final String archiveExtension
 
-	@Input
-	abstract Property<String> getArchiveExtension()
+	DeleteDistributionArchives(final File distributionDirectory, final String archiveExtension) {
+		this.distributionDirectory = distributionDirectory
+		this.archiveExtension = archiveExtension
+	}
 
-	@TaskAction
-	void deleteArchives() {
-		def directory = distributionDirectory.get().asFile
-		if (!directory.directory) {
+	@Override
+	void execute(final Task task) {
+		if (!distributionDirectory.directory) {
 			return
 		}
-		directory.listFiles()
-				.findAll { it.file && it.name.endsWith(archiveExtension.get()) }
+		distributionDirectory.listFiles()
+				.findAll { it.file && it.name.endsWith(archiveExtension) }
 				.each {
 					if (!it.delete()) {
 						throw new GradleException("Failed to delete ${it}")
@@ -1000,29 +999,21 @@ installDist {
 
 def distributionArchiveLastModifiedDate = lastCommitDate()
 
-tasks.register('deleteDistTarArchives', DeleteDistributionArchives) {
-	distributionDirectory.set(layout.buildDirectory.dir('distributions'))
-	archiveExtension.set('.tar.gz')
-}
-
-tasks.register('deleteDistZipArchives', DeleteDistributionArchives) {
-	distributionDirectory.set(layout.buildDirectory.dir('distributions'))
-	archiveExtension.set('.zip')
-}
-
 distTar {
-	dependsOn licenseCheck, startScripts, autocomplete, deleteDistTarArchives
+	dependsOn licenseCheck, startScripts, autocomplete
 	compression = Compression.GZIP
 	archiveExtension = 'tar.gz'
 	reproducibleFileOrder = true
+	doFirst(new DeleteDistributionArchives(layout.buildDirectory.dir('distributions').get().asFile, '.tar.gz'))
 	doLast {
 		repackage(archiveFile.get().toString(), distributionArchiveLastModifiedDate)
 	}
 }
 
 distZip {
-	dependsOn licenseCheck, startScripts, autocomplete, deleteDistZipArchives
+	dependsOn licenseCheck, startScripts, autocomplete
 	reproducibleFileOrder = true
+	doFirst(new DeleteDistributionArchives(layout.buildDirectory.dir('distributions').get().asFile, '.zip'))
 	doLast {
 		repackage(archiveFile.get().toString(), distributionArchiveLastModifiedDate)
 	}
