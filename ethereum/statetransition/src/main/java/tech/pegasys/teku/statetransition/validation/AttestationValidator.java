@@ -14,6 +14,7 @@
 package tech.pegasys.teku.statetransition.validation;
 
 import static tech.pegasys.teku.infrastructure.async.SafeFuture.completedFuture;
+import static tech.pegasys.teku.spec.config.Constants.VALID_VALIDATOR_SET_SIZE;
 import static tech.pegasys.teku.statetransition.validation.ValidationResultCode.ACCEPT;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -24,6 +25,8 @@ import java.util.OptionalInt;
 import java.util.Set;
 import org.apache.tuweni.bytes.Bytes32;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
+import tech.pegasys.teku.infrastructure.collections.LimitedSet;
+import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 import tech.pegasys.teku.spec.Spec;
 import tech.pegasys.teku.spec.datastructures.attestation.ValidatableAttestation;
 import tech.pegasys.teku.spec.datastructures.operations.Attestation;
@@ -43,6 +46,14 @@ public class AttestationValidator {
   private final GossipValidationHelper gossipValidationHelper;
   private final Map<Bytes32, BlockImportResult> invalidBlockRoots;
   private final Set<Bytes32> blockRootsWithInvalidExecutionPayload;
+
+  /**
+   * Tracks the (participating validator, target epoch) pairs of attestations already accepted from
+   * the unaggregated attestation subnets, so that a second attestation from the same validator for
+   * the same target epoch is ignored rather than propagated.
+   */
+  private final Set<AttesterIndexAndTargetEpoch> seenValidAttestations =
+      LimitedSet.createSynchronizedLRU(VALID_VALIDATOR_SET_SIZE);
 
   @VisibleForTesting
   AttestationValidator(
@@ -90,6 +101,7 @@ public class AttestationValidator {
             signatureVerifier,
             validatableAttestation,
             validatableAttestation.getReceivedSubnetId(),
+            true,
             true)
         .thenApply(InternalValidationResultWithState::getResult)
         .thenPeek(
@@ -123,15 +135,18 @@ public class AttestationValidator {
     // deferred without running signature verification here. The aggregate wrapper uses a batch
     // verifier that is flushed separately, so verifying (and optimistically caching) the signature
     // here would leave an unverified signature cached if the deferral short-circuits the flush.
+    // The per-validator duplicate check is also skipped: aggregates are deduplicated by aggregator
+    // index and epoch by AggregateAttestationValidator, which is a distinct spec rule.
     return singleOrAggregateAttestationChecks(
-        signatureVerifier, validatableAttestation, receivedOnSubnetId, false);
+        signatureVerifier, validatableAttestation, receivedOnSubnetId, false, false);
   }
 
   SafeFuture<InternalValidationResultWithState> singleOrAggregateAttestationChecks(
       final AsyncBLSSignatureVerifier signatureVerifier,
       final ValidatableAttestation validatableAttestation,
       final OptionalInt receivedOnSubnetId,
-      final boolean verifyFutureSlotAttestationSignature) {
+      final boolean verifyFutureSlotAttestationSignature,
+      final boolean checkForDuplicateUnaggregatedAttestation) {
 
     Attestation attestation = validatableAttestation.getAttestation();
     final AttestationData data = attestation.getData();
@@ -262,6 +277,19 @@ public class AttestationValidator {
                 }
               }
 
+              // [IGNORE] There has been no other valid attestation seen on an attestation subnet
+              // that has an identical attestation.data.target.epoch and participating validator
+              // index. Checked before signature verification so duplicates are cheap to discard.
+              final Optional<AttesterIndexAndTargetEpoch> attesterIndexAndTargetEpoch =
+                  checkForDuplicateUnaggregatedAttestation
+                      ? getAttesterIndexAndTargetEpoch(state, attestation)
+                      : Optional.empty();
+              if (attesterIndexAndTargetEpoch.map(seenValidAttestations::contains).orElse(false)) {
+                return completedFuture(
+                    InternalValidationResultWithState.ignore(
+                        "Already seen an attestation for this target epoch and validator"));
+              }
+
               return spec.isValidIndexedAttestation(
                       state, validatableAttestation, signatureVerifier)
                   .thenApply(
@@ -295,12 +323,38 @@ public class AttestationValidator {
                               "Finalized checkpoint is not an ancestor of block");
                         }
 
+                        // Only mark as seen once fully validated, so that a concurrent duplicate
+                        // losing the race is ignored rather than also being accepted.
+                        if (attesterIndexAndTargetEpoch.isPresent()
+                            && !seenValidAttestations.add(attesterIndexAndTargetEpoch.get())) {
+                          return InternalValidationResultWithState.ignore(
+                              "Already seen an attestation for this target epoch and validator");
+                        }
+
                         // Save committee shuffling seed since the state is available and
                         // attestation is valid
                         validatableAttestation.saveCommitteeShufflingSeedAndCommitteesSize(state);
                         return InternalValidationResultWithState.accept(state);
                       });
             });
+  }
+
+  /*
+   * Returns the key identifying the single participating validator of an unaggregated attestation.
+   * For SingleAttestation, it has the validator index directly;
+   * Otherwise it has committee[set_bit_indices[0]] is used, which is the first entry returned by
+   * get_attesting_indices;
+   * Empty when the attestation has no participants.
+   */
+  private Optional<AttesterIndexAndTargetEpoch> getAttesterIndexAndTargetEpoch(
+      final BeaconState state, final Attestation attestation) {
+    final Optional<UInt64> attesterIndex =
+        attestation.isSingleAttestation()
+            ? Optional.of(attestation.getValidatorIndexRequired())
+            : spec.getAttestingIndices(state, attestation).stream().findFirst();
+    return attesterIndex.map(
+        index ->
+            new AttesterIndexAndTargetEpoch(index, attestation.getData().getTarget().getEpoch()));
   }
 
   /**
@@ -338,4 +392,6 @@ public class AttestationValidator {
                                   signatureResult.getInvalidReason()));
             });
   }
+
+  private record AttesterIndexAndTargetEpoch(UInt64 attesterIndex, UInt64 targetEpoch) {}
 }
