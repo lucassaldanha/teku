@@ -14,7 +14,6 @@
 package tech.pegasys.teku.statetransition.validation;
 
 import static tech.pegasys.teku.infrastructure.async.SafeFuture.completedFuture;
-import static tech.pegasys.teku.spec.config.Constants.VALID_VALIDATOR_SET_SIZE;
 import static tech.pegasys.teku.statetransition.validation.ValidationResultCode.ACCEPT;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -25,7 +24,6 @@ import java.util.OptionalInt;
 import java.util.Set;
 import org.apache.tuweni.bytes.Bytes32;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
-import tech.pegasys.teku.infrastructure.collections.LimitedSet;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 import tech.pegasys.teku.spec.Spec;
 import tech.pegasys.teku.spec.datastructures.attestation.ValidatableAttestation;
@@ -38,6 +36,7 @@ import tech.pegasys.teku.spec.logic.common.util.AsyncBLSSignatureVerifier;
 import tech.pegasys.teku.spec.logic.common.util.AttestationUtil;
 import tech.pegasys.teku.spec.logic.common.util.AttestationUtil.SlotInclusionGossipValidationResult;
 import tech.pegasys.teku.spec.logic.common.util.AttestationValidationResult;
+import tech.pegasys.teku.statetransition.util.SeenAttestingValidatorsCache;
 
 public class AttestationValidator {
 
@@ -47,13 +46,19 @@ public class AttestationValidator {
   private final Map<Bytes32, BlockImportResult> invalidBlockRoots;
   private final Set<Bytes32> blockRootsWithInvalidExecutionPayload;
 
+  // Mirrors the current/previous-epoch attestation acceptance window used across forks, plus
+  // margin for clock disparity, so a live validator's seen-epoch entry is never evicted while
+  // still within the window other gossip checks accept attestations for. Matches Lighthouse's
+  // ObservedAttesters MAX_CACHED_EPOCHS.
+  private static final int MAX_CACHED_ATTESTATION_EPOCHS = 4;
+
   /**
-   * Tracks the (participating validator, target epoch) pairs of attestations already accepted from
-   * the unaggregated attestation subnets, so that a second attestation from the same validator for
-   * the same target epoch is ignored rather than propagated.
+   * Tracks, per target epoch, which validators already had a valid attestation accepted from the
+   * unaggregated attestation subnets, so that a second attestation from the same validator for the
+   * same target epoch is ignored rather than propagated.
    */
-  private final Set<AttesterIndexAndTargetEpoch> seenValidAttestations =
-      LimitedSet.createSynchronizedLRU(VALID_VALIDATOR_SET_SIZE);
+  private final SeenAttestingValidatorsCache seenAttestingValidators =
+      new SeenAttestingValidatorsCache(MAX_CACHED_ATTESTATION_EPOCHS);
 
   @VisibleForTesting
   AttestationValidator(
@@ -150,6 +155,28 @@ public class AttestationValidator {
 
     Attestation attestation = validatableAttestation.getAttestation();
     final AttestationData data = attestation.getData();
+    final UInt64 targetEpoch = data.getTarget().getEpoch();
+
+    // [IGNORE] No other valid attestation seen for this target epoch and validator.
+    // For a SingleAttestation the attester index is carried on the message itself (i.e.
+    // attacker-controlled and not yet validated), so per the Electra/Gloas spec this check is the
+    // very first thing validated, ahead of every other check. A value that doesn't fit in an int
+    // can never be a genuine validator index, so it's excluded here rather than converted -- it
+    // will be rejected by later checks on its own merits. For the legacy bitlist format the
+    // attester index can only be resolved via the committee, which requires state, so that format
+    // is checked further down (see below), matching the phase0/deneb spec ordering.
+    final OptionalInt earlyDuplicateAttesterIndex =
+        checkForDuplicateUnaggregatedAttestation && attestation.isSingleAttestation()
+            ? toSafeIntValidatorIndex(attestation.getValidatorIndexRequired())
+            : OptionalInt.empty();
+    if (earlyDuplicateAttesterIndex.isPresent()
+        && seenAttestingValidators.isAlreadySeen(
+            targetEpoch, earlyDuplicateAttesterIndex.getAsInt())) {
+      return completedFuture(
+          InternalValidationResultWithState.ignore(
+              "Already seen an attestation for this target epoch and validator"));
+    }
+
     // [REJECT] 4 - The attestation's epoch matches its target
     if (!data.getTarget().getEpoch().equals(spec.computeEpochAtSlot(data.getSlot()))) {
       return completedFuture(
@@ -277,14 +304,20 @@ public class AttestationValidator {
                 }
               }
 
-              // [IGNORE] There has been no other valid attestation seen on an attestation subnet
-              // that has an identical attestation.data.target.epoch and participating validator
-              // index. Checked before signature verification so duplicates are cheap to discard.
-              final Optional<AttesterIndexAndTargetEpoch> attesterIndexAndTargetEpoch =
-                  checkForDuplicateUnaggregatedAttestation
-                      ? getAttesterIndexAndTargetEpoch(state, attestation)
-                      : Optional.empty();
-              if (attesterIndexAndTargetEpoch.map(seenValidAttestations::contains).orElse(false)) {
+              // [IGNORE] No other valid attestation seen for this target epoch and validator.
+              // SingleAttestation already had its index checked above, before this state-dependent
+              // block even ran; the legacy bitlist format resolves its attester index via the
+              // committee here, now that state is available -- a real committee member index, so
+              // it's always safe to use directly -- and is checked for the first time.
+              final OptionalInt attesterIndex =
+                  earlyDuplicateAttesterIndex.isPresent()
+                      ? earlyDuplicateAttesterIndex
+                      : checkForDuplicateUnaggregatedAttestation
+                          ? getAttesterIndex(state, attestation)
+                          : OptionalInt.empty();
+              if (earlyDuplicateAttesterIndex.isEmpty()
+                  && attesterIndex.isPresent()
+                  && seenAttestingValidators.isAlreadySeen(targetEpoch, attesterIndex.getAsInt())) {
                 return completedFuture(
                     InternalValidationResultWithState.ignore(
                         "Already seen an attestation for this target epoch and validator"));
@@ -323,10 +356,13 @@ public class AttestationValidator {
                               "Finalized checkpoint is not an ancestor of block");
                         }
 
-                        // Only mark as seen once fully validated, so that a concurrent duplicate
-                        // losing the race is ignored rather than also being accepted.
-                        if (attesterIndexAndTargetEpoch.isPresent()
-                            && !seenValidAttestations.add(attesterIndexAndTargetEpoch.get())) {
+                        // Only mark as seen once fully validated -- signature verification above
+                        // guarantees attesterIndex is a real, bounded validator index by this
+                        // point -- so that a concurrent duplicate losing the race is ignored rather
+                        // than also being accepted.
+                        if (attesterIndex.isPresent()
+                            && !seenAttestingValidators.addIfAbsent(
+                                targetEpoch, attesterIndex.getAsInt())) {
                           return InternalValidationResultWithState.ignore(
                               "Already seen an attestation for this target epoch and validator");
                         }
@@ -340,21 +376,31 @@ public class AttestationValidator {
   }
 
   /*
-   * Returns the key identifying the single participating validator of an unaggregated attestation.
-   * For SingleAttestation, it has the validator index directly;
-   * Otherwise it has committee[set_bit_indices[0]] is used, which is the first entry returned by
-   * get_attesting_indices;
-   * Empty when the attestation has no participants.
+   * Returns the validator index of the single participating validator of a legacy bitlist
+   * unaggregated attestation, i.e. committee[set_bit_indices[0]] -- the first (and only, since
+   * this is only reached for a genuinely unaggregated attestation) entry returned by
+   * get_attesting_indices. SingleAttestation carries its attester index directly and never
+   * reaches this method (see the earlyDuplicateAttesterIndex computation above). Empty when the
+   * attestation has no participants.
    */
-  private Optional<AttesterIndexAndTargetEpoch> getAttesterIndexAndTargetEpoch(
-      final BeaconState state, final Attestation attestation) {
-    final Optional<UInt64> attesterIndex =
-        attestation.isSingleAttestation()
-            ? Optional.of(attestation.getValidatorIndexRequired())
-            : spec.getAttestingIndices(state, attestation).stream().findFirst();
-    return attesterIndex.map(
-        index ->
-            new AttesterIndexAndTargetEpoch(index, attestation.getData().getTarget().getEpoch()));
+  private OptionalInt getAttesterIndex(final BeaconState state, final Attestation attestation) {
+    return spec.getAttestingIndices(state, attestation).stream()
+        .mapToInt(UInt64::intValue)
+        .findFirst();
+  }
+
+  /**
+   * A real validator index always fits in an int (bounded by the actual validator registry size,
+   * nowhere near {@link Integer#MAX_VALUE} today or for the foreseeable future), so a raw attester
+   * index that doesn't fit can never match a genuine committee member. Returns empty rather than
+   * throwing, so an attacker-supplied out-of-range index in an unvalidated SingleAttestation can't
+   * be used to force an exception -- the attestation is simply excluded from the early duplicate
+   * check and rejected by later checks on its own merits.
+   */
+  private static OptionalInt toSafeIntValidatorIndex(final UInt64 validatorIndex) {
+    return validatorIndex.isLessThanOrEqualTo(Integer.MAX_VALUE)
+        ? OptionalInt.of(validatorIndex.intValue())
+        : OptionalInt.empty();
   }
 
   /**
@@ -392,6 +438,4 @@ public class AttestationValidator {
                                   signatureResult.getInvalidReason()));
             });
   }
-
-  private record AttesterIndexAndTargetEpoch(UInt64 attesterIndex, UInt64 targetEpoch) {}
 }
