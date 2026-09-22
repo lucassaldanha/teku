@@ -46,10 +46,8 @@ public class AttestationValidator {
   private final Map<Bytes32, BlockImportResult> invalidBlockRoots;
   private final Set<Bytes32> blockRootsWithInvalidExecutionPayload;
 
-  // Mirrors the current/previous-epoch attestation acceptance window used across forks, plus
-  // margin for clock disparity, so a live validator's seen-epoch entry is never evicted while
-  // still within the window other gossip checks accept attestations for. Matches Lighthouse's
-  // ObservedAttesters MAX_CACHED_EPOCHS.
+  // Current/previous-epoch attestation acceptance window used across forks, plus margin for clock
+  // disparity
   private static final int MAX_CACHED_ATTESTATION_EPOCHS = 4;
 
   /**
