@@ -48,7 +48,7 @@ public class AttestationValidator {
 
   // Current/previous-epoch attestation acceptance window used across forks, plus margin for clock
   // disparity
-  private static final int MAX_CACHED_ATTESTATION_EPOCHS = 4;
+  private static final int MAX_CACHED_ATTESTATION_EPOCHS = 3;
 
   /**
    * Tracks, per target epoch, which validators already had a valid attestation accepted from the
