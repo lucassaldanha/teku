@@ -15,7 +15,6 @@ package tech.pegasys.teku.statetransition.util;
 
 import java.util.BitSet;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
@@ -57,8 +56,14 @@ public class SeenAttestingValidatorsCache {
    * already reject attestations that old before they ever reach this cache.
    */
   public boolean addIfAbsent(final UInt64 epoch, final int validatorIndex) {
-    final Optional<UInt64> cutoff = pruneEpochsOlderThan(updateHighestEpoch(epoch));
-    if (cutoff.map(epoch::isLessThanOrEqualTo).orElse(false)) {
+    final UInt64 previousHighest = updateHighestEpoch(epoch);
+    // Only sweep the map when this call just pushed the retention window forward: the cutoff
+    // itself is cheap to recompute every time below, but repeat inserts for an already-seen epoch
+    // don't move the cutoff, so re-scanning the whole map for them would find nothing to remove.
+    if (previousHighest.isLessThan(epoch)) {
+      pruneEpochsOlderThan(epoch);
+    }
+    if (isBelowRetentionCutoff(epoch)) {
       return true;
     }
     final BitSet bitSet = seenByEpoch.computeIfAbsent(epoch, __ -> new BitSet());
@@ -72,16 +77,25 @@ public class SeenAttestingValidatorsCache {
   }
 
   private UInt64 updateHighestEpoch(final UInt64 epoch) {
-    return highestEpoch.updateAndGet(current -> current.isGreaterThan(epoch) ? current : epoch);
+    return highestEpoch.getAndUpdate(current -> current.isGreaterThan(epoch) ? current : epoch);
   }
 
-  /** Empty if fewer than maxCachedEpochs have elapsed yet, so nothing is old enough to prune. */
-  private Optional<UInt64> pruneEpochsOlderThan(final UInt64 highestSeenEpoch) {
+  /**
+   * Must be checked on every call, not only when this call's epoch happens to trigger a prune
+   * sweep: a delayed validation for an old epoch, arriving after a newer epoch already pruned it,
+   * must never recreate that epoch's BitSet.
+   */
+  private boolean isBelowRetentionCutoff(final UInt64 epoch) {
+    final UInt64 highestSeenEpoch = highestEpoch.get();
+    return highestSeenEpoch.isGreaterThanOrEqualTo(maxCachedEpochs)
+        && epoch.isLessThanOrEqualTo(highestSeenEpoch.minus(maxCachedEpochs));
+  }
+
+  private void pruneEpochsOlderThan(final UInt64 highestSeenEpoch) {
     if (highestSeenEpoch.isLessThan(maxCachedEpochs)) {
-      return Optional.empty();
+      return;
     }
     final UInt64 cutoff = highestSeenEpoch.minus(maxCachedEpochs);
     seenByEpoch.keySet().removeIf(epoch -> epoch.isLessThanOrEqualTo(cutoff));
-    return Optional.of(cutoff);
   }
 }
