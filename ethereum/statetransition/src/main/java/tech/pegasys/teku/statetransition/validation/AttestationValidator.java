@@ -14,7 +14,6 @@
 package tech.pegasys.teku.statetransition.validation;
 
 import static tech.pegasys.teku.infrastructure.async.SafeFuture.completedFuture;
-import static tech.pegasys.teku.statetransition.validation.ValidationResultCode.ACCEPT;
 
 import com.google.common.annotations.VisibleForTesting;
 import it.unimi.dsi.fastutil.ints.IntList;
@@ -87,7 +86,7 @@ public class AttestationValidator {
     }
     Attestation attestation = validatableAttestation.getAttestation();
     final InternalValidationResult internalValidationResult = singleAttestationChecks(attestation);
-    if (internalValidationResult.code() != ACCEPT) {
+    if (!internalValidationResult.isAccept()) {
       return completedFuture(internalValidationResult);
     }
 
@@ -116,8 +115,22 @@ public class AttestationValidator {
   }
 
   private InternalValidationResult singleAttestationChecks(final Attestation attestation) {
-    // if it is a SingleAttestation type we are guaranteed to be a valid single attestation
+    // [IGNORE] No other valid attestation seen for this target epoch and validator.
+    // For a SingleAttestation the attester index is carried on the message itself (i.e.
+    // attacker-controlled and not yet validated), so per the Electra/Gloas spec this check is the
+    // very first thing validated, ahead of every other check. A value that doesn't fit in an int
+    // can never be a genuine validator index, so it's excluded here rather than converted -- it
+    // will be rejected by later checks on its own merits.
     if (attestation.isSingleAttestation()) {
+      final OptionalInt attesterIndex =
+          toSafeIntValidatorIndex(attestation.getValidatorIndexRequired());
+      if (attesterIndex.isPresent()
+          && seenAttestingValidators.isAlreadySeen(
+              attestation.getData().getTarget().getEpoch(), attesterIndex.getAsInt())) {
+        return InternalValidationResult.ignore(
+            "Already seen an attestation for this target epoch and validator");
+      }
+      // if it is a SingleAttestation type we are guaranteed to be a valid single attestation
       return InternalValidationResult.ACCEPT;
     }
 
@@ -156,24 +169,30 @@ public class AttestationValidator {
     final UInt64 targetEpoch = data.getTarget().getEpoch();
 
     // [IGNORE] No other valid attestation seen for this target epoch and validator.
-    // For a SingleAttestation the attester index is carried on the message itself (i.e.
-    // attacker-controlled and not yet validated), so per the Electra/Gloas spec this check is the
-    // very first thing validated, ahead of every other check. A value that doesn't fit in an int
-    // can never be a genuine validator index, so it's excluded here rather than converted -- it
-    // will be rejected by later checks on its own merits. For the legacy bitlist format the
-    // attester index can only be resolved via the committee, which requires state, so that format
-    // is checked further down (see below), matching the phase0/deneb spec ordering.
+    // For a SingleAttestation this reuses singleAttestationChecks's early-duplicate logic --
+    // safe to call here because that method's SingleAttestation branch never runs the envelope
+    // (bit count) check that only applies to a genuinely unaggregated legacy-format attestation,
+    // which this method must NOT enforce (e.g. fork choice re-validates aggregate-shaped
+    // attestations through this same path -- see the 3-arg overload above). For the legacy
+    // bitlist format the attester index can only be resolved via the committee, which requires
+    // state, so that format is checked further down (see below), matching the phase0/deneb spec
+    // ordering.
+    final boolean isEarlyDuplicateCheckApplicable =
+        checkForDuplicateUnaggregatedAttestation && attestation.isSingleAttestation();
+    if (isEarlyDuplicateCheckApplicable) {
+      final InternalValidationResult singleAttestationResult = singleAttestationChecks(attestation);
+      if (!singleAttestationResult.isAccept()) {
+        return completedFuture(
+            InternalValidationResultWithState.ignore(
+                singleAttestationResult
+                    .getDescription()
+                    .orElse("Already seen an attestation for this target epoch and validator")));
+      }
+    }
     final OptionalInt earlyDuplicateAttesterIndex =
-        checkForDuplicateUnaggregatedAttestation && attestation.isSingleAttestation()
+        isEarlyDuplicateCheckApplicable
             ? toSafeIntValidatorIndex(attestation.getValidatorIndexRequired())
             : OptionalInt.empty();
-    if (earlyDuplicateAttesterIndex.isPresent()
-        && seenAttestingValidators.isAlreadySeen(
-            targetEpoch, earlyDuplicateAttesterIndex.getAsInt())) {
-      return completedFuture(
-          InternalValidationResultWithState.ignore(
-              "Already seen an attestation for this target epoch and validator"));
-    }
 
     // [REJECT] 4 - The attestation's epoch matches its target
     if (!data.getTarget().getEpoch().equals(spec.computeEpochAtSlot(data.getSlot()))) {
