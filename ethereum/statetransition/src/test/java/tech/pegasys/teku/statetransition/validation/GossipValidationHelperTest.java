@@ -408,6 +408,51 @@ public class GossipValidationHelperTest {
   }
 
   @TestTemplate
+  void isSlotCurrentOrPrevious_shouldOnlyAcceptCurrentAndPreviousSlot() {
+    final UInt64 currentSlot = UInt64.valueOf(10);
+    // a second into the slot, so clock disparity doesn't reach back into the slot before
+    storageSystem
+        .chainUpdater()
+        .setTimeMillis(
+            spec.computeTimeMillisAtSlot(currentSlot, recentChainData.getGenesisTimeMillis())
+                .plus(1000));
+
+    assertThat(gossipValidationHelper.isSlotCurrentOrPrevious(currentSlot.minus(2))).isFalse();
+    assertThat(gossipValidationHelper.isSlotCurrentOrPrevious(currentSlot.minus(1))).isTrue();
+    assertThat(gossipValidationHelper.isSlotCurrentOrPrevious(currentSlot)).isTrue();
+    assertThat(gossipValidationHelper.isSlotCurrentOrPrevious(currentSlot.plus(1))).isFalse();
+  }
+
+  @TestTemplate
+  void isExecutionPayloadImported_shouldCoverPayloadsNoLongerCachedInStore(
+      final SpecContext specContext) {
+    assumeThat(specContext.getSpecMilestone()).isEqualTo(SpecMilestone.GLOAS);
+    final ChainUpdater chainUpdater = storageSystem.chainUpdater();
+    final SignedBlockAndState block = storageSystem.chainBuilder().generateBlockAtSlot(1);
+    chainUpdater.saveBlock(block);
+    assertThat(gossipValidationHelper.isExecutionPayloadImported(block.getRoot())).isFalse();
+
+    saveExecutionPayloadAtSlot(1);
+    assertThat(gossipValidationHelper.isExecutionPayloadImported(block.getRoot())).isTrue();
+
+    // import more payloads than the store keeps cached
+    chainUpdater.advanceChainUntil(40);
+    assertThat(gossipValidationHelper.getRecentlyImportedExecutionPayload(block.getRoot()))
+        .isEmpty();
+    assertThat(gossipValidationHelper.isExecutionPayloadImported(block.getRoot())).isTrue();
+  }
+
+  private void saveExecutionPayloadAtSlot(final long slot) {
+    storageSystem
+        .chainUpdater()
+        .saveExecutionPayload(
+            storageSystem
+                .chainBuilder()
+                .getExecutionPayloadAtSlot(UInt64.valueOf(slot))
+                .orElseThrow());
+  }
+
+  @TestTemplate
   void getGasLimitForExecutionPayload_shouldReturnEmptyWhenExecutionPayloadIsUnavailable(
       final SpecContext specContext) {
     assumeThat(specContext.getSpecMilestone()).isEqualTo(SpecMilestone.GLOAS);

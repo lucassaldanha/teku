@@ -18,6 +18,7 @@ import static tech.pegasys.teku.infrastructure.logging.P2PLogger.P2P_LOG;
 import io.libp2p.core.pubsub.ValidationResult;
 import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes;
@@ -60,6 +61,8 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
   private final DebugDataDumper debugDataDumper;
   private final String topic;
   final TimeProvider timeProvider;
+  private final int maxInFlightMessages;
+  private final AtomicInteger inFlightMessages = new AtomicInteger();
 
   // every slot of mainnet config
   private final Throttler<Logger> loggerThrottler = new Throttler<>(LOG, UInt64.valueOf(12));
@@ -75,6 +78,37 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
       final SszSchema<MessageT> messageType,
       final NetworkingSpecConfig networkingConfig,
       final DebugDataDumper debugDataDumper) {
+    this(
+        recentChainData,
+        asyncRunner,
+        processor,
+        gossipEncoding,
+        forkDigest,
+        topicName,
+        forkValidator,
+        messageType,
+        networkingConfig,
+        debugDataDumper,
+        Integer.MAX_VALUE);
+  }
+
+  /**
+   * @param maxInFlightMessages maximum number of messages queued or being validated at once. Any
+   *     further message is ignored without being decoded.
+   */
+  public Eth2TopicHandler(
+      final RecentChainData recentChainData,
+      final AsyncRunner asyncRunner,
+      final OperationProcessor<MessageT> processor,
+      final GossipEncoding gossipEncoding,
+      final Bytes4 forkDigest,
+      final String topicName,
+      final OperationValidator<MessageT> forkValidator,
+      final SszSchema<MessageT> messageType,
+      final NetworkingSpecConfig networkingConfig,
+      final DebugDataDumper debugDataDumper,
+      final int maxInFlightMessages) {
+    this.maxInFlightMessages = maxInFlightMessages;
     this.asyncRunner = asyncRunner;
     this.processor = processor;
     this.gossipEncoding = gossipEncoding;
@@ -116,26 +150,38 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
 
   @Override
   public SafeFuture<ValidationResult> handleMessage(final PreparedGossipMessage message) {
-    return SafeFuture.of(() -> deserialize(message))
-        .thenCompose(
-            deserialized -> {
+    if (inFlightMessages.incrementAndGet() > maxInFlightMessages) {
+      inFlightMessages.decrementAndGet();
+      loggerThrottler.invoke(
+          timeProvider.getTimeInSeconds(),
+          (log) ->
+              log.warn(
+                  "Discarding gossip message for topic {} because too many messages are being processed",
+                  getTopic()));
+      return SafeFuture.completedFuture(ValidationResult.Ignore);
+    }
+    // SSZ decode on the async runner so large messages are not decoded on the libp2p thread and
+    // are not held decoded while waiting in the queue
+    return asyncRunner
+        .runAsync(
+            () -> {
+              final MessageT deserialized = deserialize(message);
               if (!forkValidator.isValid(deserialized)) {
                 return SafeFuture.completedFuture(
                     GossipSubValidationUtil.fromInternalValidationResult(
                         InternalValidationResult.reject("Incorrect spec milestone")));
               }
-              return asyncRunner.runAsync(
-                  () ->
-                      processor
-                          .process(deserialized, message.getArrivalTimestamp())
-                          .thenApply(
-                              internalValidation -> {
-                                processMessage(internalValidation, message);
-                                return GossipSubValidationUtil.fromInternalValidationResult(
-                                    internalValidation);
-                              }));
+              return processor
+                  .process(deserialized, message.getArrivalTimestamp())
+                  .thenApply(
+                      internalValidation -> {
+                        processMessage(internalValidation, message);
+                        return GossipSubValidationUtil.fromInternalValidationResult(
+                            internalValidation);
+                      });
             })
-        .exceptionally(error -> handleMessageProcessingError(message, error));
+        .exceptionally(error -> handleMessageProcessingError(message, error))
+        .alwaysRun(inFlightMessages::decrementAndGet);
   }
 
   private void processMessage(

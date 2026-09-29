@@ -52,10 +52,9 @@ public class DefaultExecutionPayloadManager
 
   private static final Logger LOG = LogManager.getLogger();
 
-  // A payload is kept pending while its beacon block is still missing. Payloads from before the
-  // finalized slot are never queued, so the cache only needs to span the non-finalized window.
-  // Under healthy finality that window is ~2 epochs (2 * SLOTS_PER_EPOCH = 64 slots on mainnet)
-  private static final int PENDING_EXECUTION_PAYLOADS_CACHE_SIZE = 64;
+  // A payload is kept pending while its beacon block is still missing. Only gossiped payloads for
+  // the current or previous slot are queued, and each is kept decoded, so keep the cache small
+  private static final int PENDING_EXECUTION_PAYLOADS_CACHE_SIZE = 8;
 
   private final Set<Bytes32> executionPayloadsSeenBeforePayloadDue =
       LimitedSet.createSynchronizedNatural(VALID_EXECUTION_PAYLOAD_SET_SIZE);

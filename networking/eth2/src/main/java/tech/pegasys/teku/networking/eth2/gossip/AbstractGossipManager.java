@@ -63,6 +63,40 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
       final NetworkingSpecConfig networkingConfig,
       final GossipFailureLogger gossipFailureLogger,
       final DebugDataDumper debugDataDumper) {
+    this(
+        recentChainData,
+        topicName,
+        asyncRunner,
+        gossipNetwork,
+        gossipEncoding,
+        forkInfo,
+        forkDigest,
+        processor,
+        gossipType,
+        getSlotForMessage,
+        getEpochForMessage,
+        networkingConfig,
+        gossipFailureLogger,
+        debugDataDumper,
+        Integer.MAX_VALUE);
+  }
+
+  protected AbstractGossipManager(
+      final RecentChainData recentChainData,
+      final GossipTopicName topicName,
+      final AsyncRunner asyncRunner,
+      final GossipNetwork gossipNetwork,
+      final GossipEncoding gossipEncoding,
+      final ForkInfo forkInfo,
+      final Bytes4 forkDigest,
+      final OperationProcessor<T> processor,
+      final SszSchema<T> gossipType,
+      final Function<T, Optional<UInt64>> getSlotForMessage,
+      final Function<T, UInt64> getEpochForMessage,
+      final NetworkingSpecConfig networkingConfig,
+      final GossipFailureLogger gossipFailureLogger,
+      final DebugDataDumper debugDataDumper,
+      final int maxInFlightMessages) {
     this.gossipNetwork = gossipNetwork;
     this.topicHandler =
         new Eth2TopicHandler<>(
@@ -71,12 +105,13 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
             processor,
             gossipEncoding,
             forkDigest,
-            topicName,
+            topicName.toString(),
             new OperationMilestoneValidator<>(
                 recentChainData.getSpec(), forkInfo.getFork(), getEpochForMessage),
             gossipType,
             networkingConfig,
-            debugDataDumper);
+            debugDataDumper,
+            maxInFlightMessages);
     this.gossipEncoding = gossipEncoding;
     this.gossipFailureLogger = gossipFailureLogger;
     this.getSlotForMessage = getSlotForMessage;

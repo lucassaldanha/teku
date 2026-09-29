@@ -21,9 +21,12 @@ import static org.mockito.Mockito.verify;
 import static tech.pegasys.teku.infrastructure.async.SafeFutureAssert.assertThatSafeFuture;
 
 import io.libp2p.core.pubsub.ValidationResult;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -125,9 +128,9 @@ public class Eth2TopicHandlerTest {
     final Bytes invalidBytes = Bytes.fromHexString("0x0102");
     final SafeFuture<ValidationResult> result =
         topicHandler.handleMessage(topicHandler.prepareMessage(invalidBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions();
     verify(debugDataDumper)
         .saveGossipMessageDecodingError(eq(topicHandler.getTopic()), any(), any(), any());
-    asyncRunner.executeQueuedActions();
 
     assertThatSafeFuture(result).isCompletedWithValue(ValidationResult.Invalid);
   }
@@ -148,9 +151,9 @@ public class Eth2TopicHandlerTest {
 
     final SafeFuture<ValidationResult> result =
         topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions();
     verify(debugDataDumper)
         .saveGossipMessageDecodingError(eq(topicHandler.getTopic()), any(), any(), any());
-    asyncRunner.executeQueuedActions();
 
     assertThatSafeFuture(result).isCompletedWithValue(ValidationResult.Invalid);
   }
@@ -171,9 +174,9 @@ public class Eth2TopicHandlerTest {
 
     final SafeFuture<ValidationResult> result =
         topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions();
     verify(debugDataDumper)
         .saveGossipMessageDecodingError(eq(topicHandler.getTopic()), any(), any(), any());
-    asyncRunner.executeQueuedActions();
 
     assertThatSafeFuture(result).isCompletedWithValue(ValidationResult.Invalid);
   }
@@ -194,9 +197,9 @@ public class Eth2TopicHandlerTest {
 
     final SafeFuture<ValidationResult> result =
         topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions();
     verify(debugDataDumper)
         .saveGossipMessageDecodingError(eq(topicHandler.getTopic()), any(), any(), any());
-    asyncRunner.executeQueuedActions();
 
     assertThatSafeFuture(result).isCompletedWithValue(ValidationResult.Invalid);
   }
@@ -317,6 +320,92 @@ public class Eth2TopicHandlerTest {
   }
 
   @Test
+  public void handleMessage_shouldDeserializeOnAsyncRunner() {
+    final AtomicInteger deserializeCount = new AtomicInteger();
+    final MockEth2TopicHandler topicHandler =
+        new MockEth2TopicHandler(
+            recentChainData,
+            spec,
+            asyncRunner,
+            (b, __) -> SafeFuture.completedFuture(InternalValidationResult.ACCEPT),
+            debugDataDumper);
+    topicHandler.setDeserializer(countingDeserializer(deserializeCount));
+
+    final SafeFuture<ValidationResult> result =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    assertThat(deserializeCount).hasValue(0);
+
+    asyncRunner.executeQueuedActions();
+    assertThat(deserializeCount).hasValue(1);
+    assertThatSafeFuture(result).isCompletedWithValue(ValidationResult.Valid);
+  }
+
+  @Test
+  public void handleMessage_shouldIgnoreWithoutDeserializingWhenMaxInFlightMessagesReached() {
+    final AtomicInteger deserializeCount = new AtomicInteger();
+    final List<SafeFuture<InternalValidationResult>> pendingValidations = new ArrayList<>();
+    final MockEth2TopicHandler topicHandler =
+        new MockEth2TopicHandler(
+            recentChainData,
+            spec,
+            asyncRunner,
+            (b, __) -> {
+              final SafeFuture<InternalValidationResult> validation = new SafeFuture<>();
+              pendingValidations.add(validation);
+              return validation;
+            },
+            debugDataDumper,
+            2);
+    topicHandler.setDeserializer(countingDeserializer(deserializeCount));
+
+    final SafeFuture<ValidationResult> first =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    final SafeFuture<ValidationResult> second =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    final SafeFuture<ValidationResult> third =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions();
+
+    assertThatSafeFuture(third).isCompletedWithValue(ValidationResult.Ignore);
+    assertThat(deserializeCount).hasValue(2);
+    assertThat(first).isNotDone();
+    assertThat(second).isNotDone();
+
+    pendingValidations.getFirst().complete(InternalValidationResult.ACCEPT);
+    assertThatSafeFuture(first).isCompletedWithValue(ValidationResult.Valid);
+
+    final SafeFuture<ValidationResult> fourth =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions();
+    assertThat(deserializeCount).hasValue(3);
+    assertThat(fourth).isNotDone();
+  }
+
+  @Test
+  public void handleMessage_shouldReleaseInFlightSlotWhenProcessingFails() {
+    final MockEth2TopicHandler topicHandler =
+        new MockEth2TopicHandler(
+            recentChainData,
+            spec,
+            asyncRunner,
+            (b, __) -> {
+              throw new NullPointerException();
+            },
+            debugDataDumper,
+            1);
+
+    final SafeFuture<ValidationResult> first =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions();
+    assertThatSafeFuture(first).isCompletedWithValue(ValidationResult.Invalid);
+
+    final SafeFuture<ValidationResult> second =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions();
+    assertThatSafeFuture(second).isCompletedWithValue(ValidationResult.Invalid);
+  }
+
+  @Test
   public void getMaxMessageSize_shouldAllowWorstCaseSnappyExpansionOfMaxPayload() {
     final MockEth2TopicHandler topicHandler =
         new MockEth2TopicHandler(
@@ -333,6 +422,14 @@ public class Eth2TopicHandlerTest {
         .isEqualTo(maxPayloadSize + 32 + maxPayloadSize / 6);
   }
 
+  private Deserializer<SignedBeaconBlock> countingDeserializer(final AtomicInteger count) {
+    return message -> {
+      count.incrementAndGet();
+      return GossipEncoding.SSZ_SNAPPY.decodeMessage(
+          message, spec.getGenesisSchemaDefinitions().getSignedBeaconBlockSchema());
+    };
+  }
+
   private static class MockEth2TopicHandler extends Eth2TopicHandler<SignedBeaconBlock> {
     private final Bytes4 forkDigest;
     private Deserializer<SignedBeaconBlock> deserializer;
@@ -344,6 +441,16 @@ public class Eth2TopicHandlerTest {
         final AsyncRunner asyncRunner,
         final OperationProcessor<SignedBeaconBlock> processor,
         final DebugDataDumper debugDataDumper) {
+      this(recentChainData, spec, asyncRunner, processor, debugDataDumper, Integer.MAX_VALUE);
+    }
+
+    protected MockEth2TopicHandler(
+        final RecentChainData recentChainData,
+        final Spec spec,
+        final AsyncRunner asyncRunner,
+        final OperationProcessor<SignedBeaconBlock> processor,
+        final DebugDataDumper debugDataDumper,
+        final int maxInFlightMessages) {
       super(
           recentChainData,
           asyncRunner,
@@ -355,7 +462,8 @@ public class Eth2TopicHandlerTest {
               spec, spec.getForkSchedule().getFork(UInt64.ZERO), message -> UInt64.ZERO),
           spec.getGenesisSchemaDefinitions().getSignedBeaconBlockSchema(),
           spec.getNetworkingConfig(),
-          debugDataDumper);
+          debugDataDumper,
+          maxInFlightMessages);
       this.forkDigest =
           recentChainData.getForkDigestByMilestone(SpecMilestone.PHASE0).orElseThrow();
       deserializer =

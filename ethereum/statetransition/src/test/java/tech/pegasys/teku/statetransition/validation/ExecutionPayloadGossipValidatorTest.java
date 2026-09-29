@@ -16,6 +16,8 @@ package tech.pegasys.teku.statetransition.validation;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static tech.pegasys.teku.infrastructure.async.SafeFutureAssert.assertThatSafeFuture;
 import static tech.pegasys.teku.statetransition.validation.InternalValidationResult.ACCEPT;
@@ -127,7 +129,19 @@ public class ExecutionPayloadGossipValidatorTest {
   @TestTemplate
   void shouldSaveForFutureIfBlockNotSeen() {
     when(gossipValidationHelper.getSlotForBlockRoot(blockRoot)).thenReturn(Optional.empty());
+    when(gossipValidationHelper.isSlotCurrentOrPrevious(slot)).thenReturn(true);
     assertThatSafeFuture(validator.validate(signedEnvelope)).isCompletedWithValue(SAVE_FOR_FUTURE);
+  }
+
+  @TestTemplate
+  void shouldIgnoreIfBlockNotSeenAndSlotIsNotRecent() {
+    when(gossipValidationHelper.getSlotForBlockRoot(blockRoot)).thenReturn(Optional.empty());
+    when(gossipValidationHelper.isSlotCurrentOrPrevious(slot)).thenReturn(false);
+    assertThatSafeFuture(validator.validate(signedEnvelope))
+        .isCompletedWithValue(
+            ignore(
+                "Block for execution payload envelope not yet seen (root: %s) and slot %s is not recent",
+                blockRoot, slot));
   }
 
   @TestTemplate
@@ -159,6 +173,45 @@ public class ExecutionPayloadGossipValidatorTest {
 
   @TestTemplate
   void shouldRejectIfBuilderIndexMismatch() {
+    final SignedExecutionPayloadBid mismatchedBid =
+        dataStructureUtil.randomSignedExecutionPayloadBid(
+            dataStructureUtil.randomExecutionPayloadBid(
+                slot,
+                envelope.getBuilderIndex().plus(1),
+                envelope.getPayload().getBlockHash(),
+                envelope.getExecutionRequests().hashTreeRoot()));
+    final BeaconBlock blockWithMismatchedBid =
+        dataStructureUtil.randomBeaconBlock(
+            slot,
+            dataStructureUtil.randomBeaconBlockBody(
+                builder -> builder.signedExecutionPayloadBid(mismatchedBid)));
+    when(gossipValidationHelper.retrieveBlockByRoot(blockRoot))
+        .thenReturn(SafeFuture.completedFuture(Optional.of(blockWithMismatchedBid)));
+
+    assertThatSafeFuture(validator.validate(signedEnvelope))
+        .isCompletedWithValue(
+            reject(
+                "Invalid builder index. Execution payload envelope had %s but the block execution payload bid had %s",
+                envelope.getBuilderIndex(), envelope.getBuilderIndex().plus(1)));
+  }
+
+  @TestTemplate
+  void shouldIgnoreWithoutSignatureCheckIfPayloadAlreadyImported() {
+    when(gossipValidationHelper.isExecutionPayloadImported(blockRoot)).thenReturn(true);
+
+    assertThatSafeFuture(validator.validate(signedEnvelope))
+        .isCompletedWithValue(
+            ignore(
+                "Already received execution payload envelope with block root %s from builder with index %s",
+                blockRoot, envelope.getBuilderIndex()));
+    verify(gossipValidationHelper, never()).getStateAtBlockRoot(any());
+    verify(gossipValidationHelper, never())
+        .isSignatureValidWithRespectToBuilderIndex(any(), any(), any(), any());
+  }
+
+  @TestTemplate
+  void shouldRejectBuilderIndexMismatchEvenIfPayloadAlreadyImported() {
+    when(gossipValidationHelper.isExecutionPayloadImported(blockRoot)).thenReturn(true);
     final SignedExecutionPayloadBid mismatchedBid =
         dataStructureUtil.randomSignedExecutionPayloadBid(
             dataStructureUtil.randomExecutionPayloadBid(

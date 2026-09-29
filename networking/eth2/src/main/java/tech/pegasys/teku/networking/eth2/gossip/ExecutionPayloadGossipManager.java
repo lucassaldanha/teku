@@ -32,6 +32,10 @@ import tech.pegasys.teku.storage.client.RecentChainData;
 public class ExecutionPayloadGossipManager
     extends AbstractGossipManager<SignedExecutionPayloadEnvelope> {
 
+  // Honest nodes see about one envelope per slot, but each one can be large and costly to
+  // validate. Keep the limit small so they can't pile up in memory or take over the P2P workers
+  static final int MAX_IN_FLIGHT_MESSAGES = 4;
+
   public ExecutionPayloadGossipManager(
       final Spec spec,
       final RecentChainData recentChainData,
@@ -59,7 +63,8 @@ public class ExecutionPayloadGossipManager
         message -> recentChainData.getSpec().computeEpochAtSlot(message.getMessage().getSlot()),
         networkingConfig,
         GossipFailureLogger.createSuppressing(GossipTopicName.EXECUTION_PAYLOAD.toString()),
-        debugDataDumper);
+        debugDataDumper,
+        MAX_IN_FLIGHT_MESSAGES);
   }
 
   public SafeFuture<Void> publish(final SignedExecutionPayloadEnvelope message) {

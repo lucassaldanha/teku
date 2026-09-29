@@ -183,6 +183,18 @@ public class ExecutionPayloadGossipValidator {
                         "Invalid builder index. Execution payload envelope had %s but the block execution payload bid had %s",
                         envelope.getBuilderIndex(), bid.getBuilderIndex()));
               }
+
+              /*
+               * [IGNORE] The node has not seen another valid envelope for this block root from this
+               * builder. seenPayloads only covers recent gossip, so also check whether the payload
+               * for this block (which is from the bid's builder) was already imported. This avoids
+               * computing the signing root of envelopes for blocks whose payload is already known.
+               */
+              if (gossipValidationHelper.isExecutionPayloadImported(
+                  envelope.getBeaconBlockRoot())) {
+                return Optional.of(ignoreExecutionPayloadAlreadySeen(envelope));
+              }
+
               /*
                * [REJECT] The payload's block hash matches the bid's block hash
                */
@@ -250,6 +262,18 @@ public class ExecutionPayloadGossipValidator {
      * (MAY be queued until block is retrieved)
      */
     if (maybeBeaconBlockSlot.isEmpty()) {
+      // Queued envelopes are kept decoded until their block arrives, so only queue the ones that
+      // could belong to a block which is still in flight
+      if (!gossipValidationHelper.isSlotCurrentOrPrevious(envelope.getSlot())) {
+        LOG.trace(
+            "Block for execution payload envelope not yet seen (root: {}) and slot {} is not recent. Ignoring the execution payload envelope",
+            envelope.getBeaconBlockRoot(),
+            envelope.getSlot());
+        return Optional.of(
+            ignore(
+                "Block for execution payload envelope not yet seen (root: %s) and slot %s is not recent",
+                envelope.getBeaconBlockRoot(), envelope.getSlot()));
+      }
       LOG.trace(
           "Block for execution Payload Envelope not yet seen (root: {}). Saving the execution payload envelope for future processing",
           envelope.getBeaconBlockRoot());

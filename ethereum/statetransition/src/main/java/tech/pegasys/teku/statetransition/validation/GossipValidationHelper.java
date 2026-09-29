@@ -83,6 +83,17 @@ public class GossipValidationHelper {
     return slot.isGreaterThan(maxCurrSlot);
   }
 
+  /** Returns true for the current or the previous slot, allowing for clock disparity. */
+  public boolean isSlotCurrentOrPrevious(final UInt64 slot) {
+    if (isSlotFromFuture(slot)) {
+      return false;
+    }
+    final UInt64 minTime = getCurrentTimeMillis().minusMinZero(maxOffsetTimeInMillis);
+    final UInt64 minCurrentSlot =
+        spec.getCurrentSlotFromTimeMillis(minTime, recentChainData.getGenesisTimeMillis());
+    return slot.plus(1).isGreaterThanOrEqualTo(minCurrentSlot);
+  }
+
   /**
    * Returns true when the proposer for {@code proposalSlot} is known, which happens once the
    * lookahead epoch has started.
@@ -401,6 +412,20 @@ public class GossipValidationHelper {
   public Optional<SignedExecutionPayloadEnvelope> getRecentlyImportedExecutionPayload(
       final Bytes32 blockRoot) {
     return recentChainData.getStore().getExecutionPayloadIfAvailable(blockRoot);
+  }
+
+  /**
+   * Unlike {@link #getRecentlyImportedExecutionPayload(Bytes32)}, which only covers the most recent
+   * payloads, the FULL fork choice node covers the whole non-finalized chain.
+   */
+  public boolean isExecutionPayloadImported(final Bytes32 blockRoot) {
+    return recentChainData
+        .getForkChoiceStrategy()
+        .flatMap(
+            forkChoiceStrategy ->
+                forkChoiceStrategy.getBlockData(
+                    blockRoot, ForkChoicePayloadStatus.PAYLOAD_STATUS_FULL))
+        .isPresent();
   }
 
   public Optional<UInt64> getGasLimitForExecutionPayload(
