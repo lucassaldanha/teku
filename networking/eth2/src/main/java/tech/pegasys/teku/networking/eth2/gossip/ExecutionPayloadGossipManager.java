@@ -14,6 +14,7 @@
 package tech.pegasys.teku.networking.eth2.gossip;
 
 import java.util.Optional;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.infrastructure.bytes.Bytes4;
@@ -39,6 +40,7 @@ public class ExecutionPayloadGossipManager
   public ExecutionPayloadGossipManager(
       final Spec spec,
       final RecentChainData recentChainData,
+      final MetricsSystem metricsSystem,
       final AsyncRunner asyncRunner,
       final GossipNetwork gossipNetwork,
       final GossipEncoding gossipEncoding,
@@ -64,7 +66,8 @@ public class ExecutionPayloadGossipManager
         networkingConfig,
         GossipFailureLogger.createSuppressing(GossipTopicName.EXECUTION_PAYLOAD.toString()),
         debugDataDumper,
-        MAX_IN_FLIGHT_MESSAGES);
+        MAX_IN_FLIGHT_MESSAGES,
+        metricsSystem);
   }
 
   public SafeFuture<Void> publish(final SignedExecutionPayloadEnvelope message) {

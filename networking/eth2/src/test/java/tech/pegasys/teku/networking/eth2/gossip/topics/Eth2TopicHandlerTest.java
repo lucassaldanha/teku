@@ -28,6 +28,8 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.tuweni.bytes.Bytes;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
@@ -344,6 +346,7 @@ public class Eth2TopicHandlerTest {
   public void handleMessage_shouldIgnoreWithoutDeserializingWhenMaxInFlightMessagesReached() {
     final AtomicInteger deserializeCount = new AtomicInteger();
     final List<SafeFuture<InternalValidationResult>> pendingValidations = new ArrayList<>();
+    final Counter discardedCounter = mock(Counter.class);
     final MockEth2TopicHandler topicHandler =
         new MockEth2TopicHandler(
             recentChainData,
@@ -355,7 +358,8 @@ public class Eth2TopicHandlerTest {
               return validation;
             },
             debugDataDumper,
-            2);
+            2,
+            discardedCounter);
     topicHandler.setDeserializer(countingDeserializer(deserializeCount));
 
     final SafeFuture<ValidationResult> first =
@@ -367,6 +371,7 @@ public class Eth2TopicHandlerTest {
     asyncRunner.executeQueuedActions();
 
     assertThatSafeFuture(third).isCompletedWithValue(ValidationResult.Ignore);
+    verify(discardedCounter).inc();
     assertThat(deserializeCount).hasValue(2);
     assertThat(first).isNotDone();
     assertThat(second).isNotDone();
@@ -441,7 +446,14 @@ public class Eth2TopicHandlerTest {
         final AsyncRunner asyncRunner,
         final OperationProcessor<SignedBeaconBlock> processor,
         final DebugDataDumper debugDataDumper) {
-      this(recentChainData, spec, asyncRunner, processor, debugDataDumper, Integer.MAX_VALUE);
+      this(
+          recentChainData,
+          spec,
+          asyncRunner,
+          processor,
+          debugDataDumper,
+          Integer.MAX_VALUE,
+          NoOpMetricsSystem.NO_OP_COUNTER);
     }
 
     protected MockEth2TopicHandler(
@@ -451,6 +463,24 @@ public class Eth2TopicHandlerTest {
         final OperationProcessor<SignedBeaconBlock> processor,
         final DebugDataDumper debugDataDumper,
         final int maxInFlightMessages) {
+      this(
+          recentChainData,
+          spec,
+          asyncRunner,
+          processor,
+          debugDataDumper,
+          maxInFlightMessages,
+          NoOpMetricsSystem.NO_OP_COUNTER);
+    }
+
+    protected MockEth2TopicHandler(
+        final RecentChainData recentChainData,
+        final Spec spec,
+        final AsyncRunner asyncRunner,
+        final OperationProcessor<SignedBeaconBlock> processor,
+        final DebugDataDumper debugDataDumper,
+        final int maxInFlightMessages,
+        final Counter inFlightLimitDiscardedCounter) {
       super(
           recentChainData,
           asyncRunner,
@@ -463,7 +493,8 @@ public class Eth2TopicHandlerTest {
           spec.getGenesisSchemaDefinitions().getSignedBeaconBlockSchema(),
           spec.getNetworkingConfig(),
           debugDataDumper,
-          maxInFlightMessages);
+          maxInFlightMessages,
+          inFlightLimitDiscardedCounter);
       this.forkDigest =
           recentChainData.getForkDigestByMilestone(SpecMilestone.PHASE0).orElseThrow();
       deserializer =

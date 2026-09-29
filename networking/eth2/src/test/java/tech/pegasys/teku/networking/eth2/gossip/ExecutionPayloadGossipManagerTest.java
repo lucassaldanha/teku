@@ -31,6 +31,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestTemplate;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.infrastructure.async.StubAsyncRunner;
+import tech.pegasys.teku.infrastructure.metrics.StubMetricsSystem;
+import tech.pegasys.teku.infrastructure.metrics.TekuMetricCategory;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 import tech.pegasys.teku.networking.eth2.gossip.encoding.GossipEncoding;
 import tech.pegasys.teku.networking.eth2.gossip.topics.OperationProcessor;
@@ -57,6 +59,7 @@ public class ExecutionPayloadGossipManagerTest {
 
   private final GossipEncoding gossipEncoding = GossipEncoding.SSZ_SNAPPY;
   private final StubAsyncRunner asyncRunner = new StubAsyncRunner();
+  private final StubMetricsSystem metricsSystem = new StubMetricsSystem();
 
   private DataStructureUtil dataStructureUtil;
   private Eth2TopicHandler<?> topicHandler;
@@ -73,6 +76,7 @@ public class ExecutionPayloadGossipManagerTest {
         new ExecutionPayloadGossipManager(
                 spec,
                 recentChainData,
+                metricsSystem,
                 asyncRunner,
                 mock(GossipNetwork.class),
                 gossipEncoding,
@@ -100,5 +104,11 @@ public class ExecutionPayloadGossipManagerTest {
     verify(processor, times(MAX_IN_FLIGHT_MESSAGES)).process(any(), any());
     assertThat(results.subList(0, MAX_IN_FLIGHT_MESSAGES)).allMatch(result -> !result.isDone());
     assertThatSafeFuture(results.getLast()).isCompletedWithValue(ValidationResult.Ignore);
+    assertThat(
+            metricsSystem.getLabelledCounterValue(
+                TekuMetricCategory.NETWORK,
+                "gossip_messages_in_flight_limit_discarded_total",
+                "execution_payload"))
+        .isEqualTo(1);
   }
 }

@@ -18,9 +18,12 @@ import java.util.Optional;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.infrastructure.bytes.Bytes4;
+import tech.pegasys.teku.infrastructure.metrics.TekuMetricCategory;
 import tech.pegasys.teku.infrastructure.ssz.SszData;
 import tech.pegasys.teku.infrastructure.ssz.schema.SszSchema;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
@@ -78,7 +81,8 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
         networkingConfig,
         gossipFailureLogger,
         debugDataDumper,
-        Integer.MAX_VALUE);
+        Integer.MAX_VALUE,
+        new NoOpMetricsSystem());
   }
 
   protected AbstractGossipManager(
@@ -96,7 +100,8 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
       final NetworkingSpecConfig networkingConfig,
       final GossipFailureLogger gossipFailureLogger,
       final DebugDataDumper debugDataDumper,
-      final int maxInFlightMessages) {
+      final int maxInFlightMessages,
+      final MetricsSystem metricsSystem) {
     this.gossipNetwork = gossipNetwork;
     this.topicHandler =
         new Eth2TopicHandler<>(
@@ -111,7 +116,14 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
             gossipType,
             networkingConfig,
             debugDataDumper,
-            maxInFlightMessages);
+            maxInFlightMessages,
+            metricsSystem
+                .createLabelledCounter(
+                    TekuMetricCategory.NETWORK,
+                    "gossip_messages_in_flight_limit_discarded_total",
+                    "Total number of gossip messages discarded because too many messages for the topic were already being processed",
+                    "topic")
+                .labels(topicName.toString()));
     this.gossipEncoding = gossipEncoding;
     this.gossipFailureLogger = gossipFailureLogger;
     this.getSlotForMessage = getSlotForMessage;

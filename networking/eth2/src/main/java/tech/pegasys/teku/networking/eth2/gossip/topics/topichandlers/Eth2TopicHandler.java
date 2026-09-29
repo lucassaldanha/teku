@@ -22,6 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.infrastructure.bytes.Bytes4;
@@ -63,6 +65,7 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
   final TimeProvider timeProvider;
   private final int maxInFlightMessages;
   private final AtomicInteger inFlightMessages = new AtomicInteger();
+  private final Counter inFlightLimitDiscardedCounter;
 
   // every slot of mainnet config
   private final Throttler<Logger> loggerThrottler = new Throttler<>(LOG, UInt64.valueOf(12));
@@ -89,12 +92,14 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
         messageType,
         networkingConfig,
         debugDataDumper,
-        Integer.MAX_VALUE);
+        Integer.MAX_VALUE,
+        NoOpMetricsSystem.NO_OP_COUNTER);
   }
 
   /**
    * @param maxInFlightMessages maximum number of messages queued or being validated at once. Any
    *     further message is ignored without being decoded.
+   * @param inFlightLimitDiscardedCounter incremented for each message ignored because of the limit
    */
   public Eth2TopicHandler(
       final RecentChainData recentChainData,
@@ -107,8 +112,10 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
       final SszSchema<MessageT> messageType,
       final NetworkingSpecConfig networkingConfig,
       final DebugDataDumper debugDataDumper,
-      final int maxInFlightMessages) {
+      final int maxInFlightMessages,
+      final Counter inFlightLimitDiscardedCounter) {
     this.maxInFlightMessages = maxInFlightMessages;
+    this.inFlightLimitDiscardedCounter = inFlightLimitDiscardedCounter;
     this.asyncRunner = asyncRunner;
     this.processor = processor;
     this.gossipEncoding = gossipEncoding;
@@ -152,6 +159,7 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
   public SafeFuture<ValidationResult> handleMessage(final PreparedGossipMessage message) {
     if (inFlightMessages.incrementAndGet() > maxInFlightMessages) {
       inFlightMessages.decrementAndGet();
+      inFlightLimitDiscardedCounter.inc();
       loggerThrottler.invoke(
           timeProvider.getTimeInSeconds(),
           (log) ->
