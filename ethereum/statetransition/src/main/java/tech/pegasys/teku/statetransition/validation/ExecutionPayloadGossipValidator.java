@@ -47,12 +47,18 @@ public class ExecutionPayloadGossipValidator {
 
   private static final Logger LOG = LogManager.getLogger();
 
+  // Large enough to cover the non-finalized chain, one entry per block root
+  private static final int INVALID_SIGNATURE_PAYLOADS_SET_SIZE = 1024;
+
   private final GossipValidationHelper gossipValidationHelper;
   private final BlockGossipValidator blockGossipValidator;
   private final SigningRootUtil signingRootUtil;
 
   private final Set<BlockRootAndBuilderIndex> seenPayloads =
       LimitedSet.createSynchronizedLRU(VALID_EXECUTION_PAYLOAD_SET_SIZE);
+
+  private final Set<BlockRootAndBuilderIndex> invalidSignaturePayloads =
+      LimitedSet.createSynchronizedLRU(INVALID_SIGNATURE_PAYLOADS_SET_SIZE);
 
   private final Map<Bytes32, BlockImportResult> invalidBlockRoots;
 
@@ -185,17 +191,6 @@ public class ExecutionPayloadGossipValidator {
               }
 
               /*
-               * [IGNORE] The node has not seen another valid envelope for this block root from this
-               * builder. seenPayloads only covers recent gossip, so also check whether the payload
-               * for this block (which is from the bid's builder) was already imported. This avoids
-               * computing the signing root of envelopes for blocks whose payload is already known.
-               */
-              if (gossipValidationHelper.isExecutionPayloadImported(
-                  envelope.getBeaconBlockRoot())) {
-                return Optional.of(ignoreExecutionPayloadAlreadySeen(envelope));
-              }
-
-              /*
                * [REJECT] The payload's block hash matches the bid's block hash
                */
               final ExecutionPayload payload = envelope.getPayload();
@@ -226,6 +221,26 @@ public class ExecutionPayloadGossipValidator {
                     reject(
                         "Invalid execution requests. Execution Payload Envelope had execution requests root of %s but ExecutionPayload Bid had %s",
                         executionRequestsRoot, bidExecutionRequestsRoot));
+              }
+
+              /*
+               * Not a spec rule. An envelope with an invalid signature was already received for
+               * this block root and builder, and the payload for the block is already imported, so
+               * nothing is lost by skipping the signing root and signature verification. Without
+               * the imported check, invalid envelopes sent ahead of the builder's could get the
+               * valid one ignored.
+               */
+              if (invalidSignaturePayloads.contains(envelope.getBlockRootAndBuilderIndex())
+                  && gossipValidationHelper.isExecutionPayloadImported(
+                      envelope.getBeaconBlockRoot())) {
+                LOG.trace(
+                    "Already received execution payload envelope with invalid signature for block root {} from builder with index {} and the payload is already imported. Ignoring the execution payload envelope",
+                    envelope.getBeaconBlockRoot(),
+                    envelope.getBuilderIndex());
+                return Optional.of(
+                    ignore(
+                        "Already received execution payload envelope with invalid signature for block root %s from builder with index %s and the payload is already imported",
+                        envelope.getBeaconBlockRoot(), envelope.getBuilderIndex()));
               }
 
               return Optional.empty();
@@ -328,6 +343,7 @@ public class ExecutionPayloadGossipValidator {
                */
               if (!isSignatureValid(envelope, maybeState.get())) {
                 LOG.trace("Invalid signed execution payload envelope signature. Rejecting");
+                invalidSignaturePayloads.add(envelope.getMessage().getBlockRootAndBuilderIndex());
                 return reject("Invalid signed execution payload envelope signature");
               }
               return ACCEPT;
