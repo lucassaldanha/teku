@@ -26,6 +26,8 @@ import io.libp2p.core.pubsub.ValidationResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.function.Supplier;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestTemplate;
@@ -110,5 +112,27 @@ public class ExecutionPayloadGossipManagerTest {
                 "gossip_messages_in_flight_limit_discarded_total",
                 "execution_payload"))
         .isEqualTo(1);
+  }
+
+  @TestTemplate
+  void shouldExposeInFlightCountGauge() {
+    when(processor.process(any(), any())).thenAnswer(__ -> new SafeFuture<>());
+    final Bytes message =
+        gossipEncoding.encode(dataStructureUtil.randomSignedExecutionPayloadEnvelope(1));
+    final Supplier<OptionalDouble> gauge =
+        () ->
+            metricsSystem
+                .getLabelledGauge(TekuMetricCategory.NETWORK, "gossip_messages_in_flight")
+                .getValue("execution_payload");
+    assertThat(gauge.get()).hasValue(0);
+
+    topicHandler
+        .handleMessage(topicHandler.prepareMessage(message, Optional.empty()))
+        .finishStackTrace();
+    topicHandler
+        .handleMessage(topicHandler.prepareMessage(message, Optional.empty()))
+        .finishStackTrace();
+
+    assertThat(gauge.get()).hasValue(2);
   }
 }

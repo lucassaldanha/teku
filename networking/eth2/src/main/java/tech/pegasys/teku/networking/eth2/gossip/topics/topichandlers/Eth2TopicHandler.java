@@ -268,6 +268,10 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
     return getGossipEncoding().decodeMessage(message, getMessageType());
   }
 
+  public int getInFlightMessageCount() {
+    return inFlightMessages.get();
+  }
+
   public OperationProcessor<MessageT> getProcessor() {
     return processor;
   }

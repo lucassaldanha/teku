@@ -16,6 +16,7 @@ package tech.pegasys.teku.statetransition.validation;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -94,6 +95,7 @@ public class ExecutionPayloadGossipValidatorTest {
     when(gossipValidationHelper.getSlotForBlockRoot(envelope.getBeaconBlockRoot()))
         .thenReturn(Optional.of(slot));
     when(gossipValidationHelper.isBeforeFinalizedSlot(slot)).thenReturn(false);
+    when(gossipValidationHelper.isSlotCurrentOrPrevious(slot)).thenReturn(true);
     when(gossipValidationHelper.retrieveBlockByRoot(blockRoot))
         .thenReturn(SafeFuture.completedFuture(Optional.of(beaconBlock)));
     when(gossipValidationHelper.getStateAtBlockRoot(any(Bytes32.class)))
@@ -269,6 +271,40 @@ public class ExecutionPayloadGossipValidatorTest {
                 blockRoot, envelope.getBuilderIndex()));
     verify(gossipValidationHelper, times(1))
         .isSignatureValidWithRespectToBuilderIndex(any(), any(), any(), any());
+  }
+
+  @TestTemplate
+  void shouldIgnoreWithoutRegeneratingStateIfSlotIsNotRecentAndStateNotCached() {
+    when(gossipValidationHelper.isSlotCurrentOrPrevious(slot)).thenReturn(false);
+    when(gossipValidationHelper.isBlockStateAvailableWithoutRegeneration(blockRoot))
+        .thenReturn(false);
+
+    assertThatSafeFuture(validator.validate(signedEnvelope))
+        .isCompletedWithValue(
+            ignore(
+                "State for block root %s is not cached and slot %s is not recent",
+                blockRoot, slot));
+    verify(gossipValidationHelper, never()).getStateAtBlockRoot(any());
+  }
+
+  @TestTemplate
+  void shouldValidateIfSlotIsNotRecentButStateIsCached() {
+    when(gossipValidationHelper.isSlotCurrentOrPrevious(slot)).thenReturn(false);
+    when(gossipValidationHelper.isBlockStateAvailableWithoutRegeneration(blockRoot))
+        .thenReturn(true);
+
+    assertThatSafeFuture(validator.validate(signedEnvelope)).isCompletedWithValue(ACCEPT);
+    verify(gossipValidationHelper).getStateAtBlockRoot(blockRoot);
+  }
+
+  @TestTemplate
+  void shouldValidateIfSlotIsRecentAndStateNotCached() {
+    when(gossipValidationHelper.isSlotCurrentOrPrevious(slot)).thenReturn(true);
+    when(gossipValidationHelper.isBlockStateAvailableWithoutRegeneration(blockRoot))
+        .thenReturn(false);
+
+    assertThatSafeFuture(validator.validate(signedEnvelope)).isCompletedWithValue(ACCEPT);
+    verify(gossipValidationHelper).getStateAtBlockRoot(blockRoot);
   }
 
   @TestTemplate

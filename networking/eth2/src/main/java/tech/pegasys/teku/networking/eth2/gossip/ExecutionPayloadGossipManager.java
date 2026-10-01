@@ -34,8 +34,9 @@ public class ExecutionPayloadGossipManager
     extends AbstractGossipManager<SignedExecutionPayloadEnvelope> {
 
   // Honest nodes see about one envelope per slot, but each one can be large and costly to
-  // validate. Keep the limit small so they can't pile up in memory or take over the P2P workers
-  static final int MAX_IN_FLIGHT_MESSAGES = 4;
+  // validate. Keep the limit small so they can't pile up in memory (worst case 8 x 10 MiB) or take
+  // over the P2P workers.
+  static final int MAX_IN_FLIGHT_MESSAGES = 8;
 
   public ExecutionPayloadGossipManager(
       final Spec spec,

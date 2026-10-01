@@ -124,6 +124,15 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
                     "Total number of gossip messages discarded because too many messages for the topic were already being processed",
                     "topic")
                 .labels(topicName.toString()));
+    if (maxInFlightMessages != Integer.MAX_VALUE) {
+      metricsSystem
+          .createLabelledSuppliedGauge(
+              TekuMetricCategory.NETWORK,
+              "gossip_messages_in_flight",
+              "Number of gossip messages currently being processed for the topic",
+              "topic")
+          .labels(topicHandler::getInFlightMessageCount, topicName.toString());
+    }
     this.gossipEncoding = gossipEncoding;
     this.gossipFailureLogger = gossipFailureLogger;
     this.getSlotForMessage = getSlotForMessage;

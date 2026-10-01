@@ -215,6 +215,11 @@ public class GossipValidationHelper {
     return recentChainData.retrieveBlockState(blockRoot);
   }
 
+  /** True when the block's state is cached, so retrieving it does not trigger a regeneration. */
+  public boolean isBlockStateAvailableWithoutRegeneration(final Bytes32 blockRoot) {
+    return recentChainData.isBlockStateCached(blockRoot);
+  }
+
   public boolean currentFinalizedCheckpointIsAncestorOfBlock(
       final UInt64 blockSlot, final Bytes32 blockParentRoot) {
     return spec.blockDescendsFromLatestFinalizedBlock(

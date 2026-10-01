@@ -328,6 +328,23 @@ public class ExecutionPayloadGossipValidator {
 
   private SafeFuture<InternalValidationResult> performWithStateValidation(
       final SignedExecutionPayloadEnvelope envelope) {
+    /*
+     * Not a spec rule. Regenerating the state of an older block replays up to a full epoch of
+     * blocks and holds a validation slot for that long, and the signature is not checked yet, so
+     * envelopes for old blocks whose state is not cached are ignored rather than regenerated.
+     */
+    if (!gossipValidationHelper.isSlotCurrentOrPrevious(envelope.getMessage().getSlot())
+        && !gossipValidationHelper.isBlockStateAvailableWithoutRegeneration(
+            envelope.getMessage().getBeaconBlockRoot())) {
+      LOG.trace(
+          "State for block root {} is not cached and slot {} is not recent. Ignoring the execution payload envelope",
+          envelope.getMessage().getBeaconBlockRoot(),
+          envelope.getMessage().getSlot());
+      return SafeFuture.completedFuture(
+          ignore(
+              "State for block root %s is not cached and slot %s is not recent",
+              envelope.getMessage().getBeaconBlockRoot(), envelope.getMessage().getSlot()));
+    }
     return gossipValidationHelper
         .getStateAtBlockRoot(envelope.getBeaconBlockRoot())
         .thenApply(
