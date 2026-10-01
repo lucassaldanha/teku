@@ -271,6 +271,48 @@ public class ExecutionPayloadGossipValidatorTest {
                 blockRoot, envelope.getBuilderIndex()));
     verify(gossipValidationHelper, times(1))
         .isSignatureValidWithRespectToBuilderIndex(any(), any(), any(), any());
+    verify(gossipValidationHelper, times(1)).getStateAtBlockRoot(blockRoot);
+  }
+
+  @TestTemplate
+  void shouldNotSkipValidationForOtherBlockRootAfterInvalidSignature() {
+    when(gossipValidationHelper.isSignatureValidWithRespectToBuilderIndex(
+            any(), any(), any(), any()))
+        .thenReturn(false);
+    assertThatSafeFuture(validator.validate(signedEnvelope))
+        .isCompletedWithValue(reject("Invalid signed execution payload envelope signature"));
+    when(gossipValidationHelper.isExecutionPayloadImported(any())).thenReturn(true);
+
+    // same builder, different block root, which has its own block and matching bid
+    final SignedExecutionPayloadEnvelope otherSignedEnvelope =
+        dataStructureUtil.randomSignedExecutionPayloadEnvelope(slot.longValue());
+    final ExecutionPayloadEnvelope otherEnvelope = otherSignedEnvelope.getMessage();
+    final Bytes32 otherRoot = otherEnvelope.getBeaconBlockRoot();
+    final SignedExecutionPayloadBid otherBid =
+        dataStructureUtil.randomSignedExecutionPayloadBid(
+            dataStructureUtil.randomExecutionPayloadBid(
+                otherEnvelope.getSlot(),
+                otherEnvelope.getBuilderIndex(),
+                otherEnvelope.getPayload().getBlockHash(),
+                otherEnvelope.getExecutionRequests().hashTreeRoot()));
+    final BeaconBlock otherBlock =
+        dataStructureUtil.randomBeaconBlock(
+            otherEnvelope.getSlot(),
+            dataStructureUtil.randomBeaconBlockBody(
+                builder -> builder.signedExecutionPayloadBid(otherBid)));
+    when(gossipValidationHelper.getSlotForBlockRoot(otherRoot))
+        .thenReturn(Optional.of(otherEnvelope.getSlot()));
+    when(gossipValidationHelper.isBeforeFinalizedSlot(otherEnvelope.getSlot())).thenReturn(false);
+    when(gossipValidationHelper.isSlotCurrentOrPrevious(otherEnvelope.getSlot())).thenReturn(true);
+    when(gossipValidationHelper.retrieveBlockByRoot(otherRoot))
+        .thenReturn(SafeFuture.completedFuture(Optional.of(otherBlock)));
+    final SpecVersion specVersion = spec.atSlot(slot);
+    when(spec.atSlot(otherEnvelope.getSlot())).thenReturn(specVersion);
+
+    assertThatSafeFuture(validator.validate(otherSignedEnvelope))
+        .isCompletedWithValue(reject("Invalid signed execution payload envelope signature"));
+    verify(gossipValidationHelper, times(2))
+        .isSignatureValidWithRespectToBuilderIndex(any(), any(), any(), any());
   }
 
   @TestTemplate

@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static tech.pegasys.teku.infrastructure.async.SafeFutureAssert.assertThatSafeFuture;
 
 import io.libp2p.core.pubsub.ValidationResult;
@@ -34,6 +35,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
+import tech.pegasys.teku.infrastructure.async.ExceptionThrowingFutureSupplier;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.infrastructure.async.StubAsyncRunner;
 import tech.pegasys.teku.infrastructure.bytes.Bytes4;
@@ -413,6 +415,66 @@ public class Eth2TopicHandlerTest {
   }
 
   @Test
+  public void handleMessage_shouldReleaseInFlightSlotWhenProcessingFailsAsynchronously() {
+    final MockEth2TopicHandler topicHandler =
+        new MockEth2TopicHandler(
+            recentChainData,
+            spec,
+            asyncRunner,
+            (b, __) -> SafeFuture.failedFuture(new NullPointerException()),
+            debugDataDumper,
+            1);
+
+    assertSlotReleasedAfterEachOf(topicHandler, 2, ValidationResult.Invalid);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void handleMessage_shouldReleaseInFlightSlotWhenAsyncRunnerRejects() {
+    final AsyncRunner rejectingRunner = mock(AsyncRunner.class);
+    when(rejectingRunner.runAsync(any(ExceptionThrowingFutureSupplier.class)))
+        .thenReturn(SafeFuture.failedFuture(new RejectedExecutionException("full")));
+    final MockEth2TopicHandler topicHandler =
+        new MockEth2TopicHandler(
+            recentChainData,
+            spec,
+            rejectingRunner,
+            (b, __) -> SafeFuture.completedFuture(InternalValidationResult.ACCEPT),
+            debugDataDumper,
+            1);
+
+    assertSlotReleasedAfterEachOf(topicHandler, 2, ValidationResult.Ignore);
+  }
+
+  @Test
+  public void handleMessage_shouldReleaseInFlightSlotWhenForkValidatorRejects() {
+    final Eth2TopicHandler<SignedBeaconBlock> topicHandler =
+        new Eth2TopicHandler<>(
+            recentChainData,
+            asyncRunner,
+            (b, __) -> SafeFuture.completedFuture(InternalValidationResult.ACCEPT),
+            GossipEncoding.SSZ_SNAPPY,
+            recentChainData.getForkDigestByMilestone(SpecMilestone.PHASE0).orElseThrow(),
+            "test",
+            message -> false,
+            spec.getGenesisSchemaDefinitions().getSignedBeaconBlockSchema(),
+            spec.getNetworkingConfig(),
+            debugDataDumper,
+            1,
+            Duration.ZERO,
+            NoOpMetricsSystem.NO_OP_COUNTER);
+    final Bytes bytes = blockBytes;
+
+    for (int i = 0; i < 2; i++) {
+      final SafeFuture<ValidationResult> result =
+          topicHandler.handleMessage(topicHandler.prepareMessage(bytes, Optional.empty()));
+      asyncRunner.executeQueuedActions();
+      assertThatSafeFuture(result).isCompletedWithValue(ValidationResult.Invalid);
+      assertThat(topicHandler.getInFlightMessageCount()).isZero();
+    }
+  }
+
+  @Test
   public void handleMessage_shouldIgnoreAndReleaseInFlightSlotWhenProcessingTimesOut() {
     final List<SafeFuture<InternalValidationResult>> pendingValidations = new ArrayList<>();
     final MockEth2TopicHandler topicHandler =
@@ -455,6 +517,19 @@ public class Eth2TopicHandlerTest {
     assertThat(pendingValidations).hasSize(2);
     assertThat(second).isNotDone();
     assertThat(topicHandler.getInFlightMessageCount()).isEqualTo(1);
+  }
+
+  private void assertSlotReleasedAfterEachOf(
+      final MockEth2TopicHandler topicHandler,
+      final int messages,
+      final ValidationResult expected) {
+    for (int i = 0; i < messages; i++) {
+      final SafeFuture<ValidationResult> result =
+          topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+      asyncRunner.executeQueuedActions();
+      assertThatSafeFuture(result).isCompletedWithValue(expected);
+      assertThat(topicHandler.getInFlightMessageCount()).isZero();
+    }
   }
 
   @Test
