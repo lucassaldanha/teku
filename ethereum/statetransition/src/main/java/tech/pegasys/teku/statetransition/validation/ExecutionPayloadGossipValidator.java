@@ -191,6 +191,30 @@ public class ExecutionPayloadGossipValidator {
               }
 
               /*
+               * Not a spec rule. An envelope with an invalid signature was already received for
+               * this block root and builder, and the payload for the block is already imported, so
+               * nothing is lost by skipping the signing root and signature verification. Without
+               * the imported check, invalid envelopes sent ahead of the builder's could get the
+               * valid one ignored. This deliberately turns what the spec would REJECT into an
+               * IGNORE (no peer penalty), because proving the invalidity would need the signature
+               * work we are trying to skip. Only peer scoring is affected, not forwarding. It only
+               * needs the block root and builder index, so it runs before the hash tree root of the
+               * (attacker controlled) execution requests is computed.
+               */
+              if (invalidSignaturePayloads.contains(envelope.getBlockRootAndBuilderIndex())
+                  && gossipValidationHelper.isExecutionPayloadImported(
+                      envelope.getBeaconBlockRoot())) {
+                LOG.trace(
+                    "Already received execution payload envelope with invalid signature for block root {} from builder with index {} and the payload is already imported. Ignoring the execution payload envelope",
+                    envelope.getBeaconBlockRoot(),
+                    envelope.getBuilderIndex());
+                return Optional.of(
+                    ignore(
+                        "Already received execution payload envelope with invalid signature for block root %s from builder with index %s and the payload is already imported",
+                        envelope.getBeaconBlockRoot(), envelope.getBuilderIndex()));
+              }
+
+              /*
                * [REJECT] The payload's block hash matches the bid's block hash
                */
               final ExecutionPayload payload = envelope.getPayload();
@@ -221,26 +245,6 @@ public class ExecutionPayloadGossipValidator {
                     reject(
                         "Invalid execution requests. Execution Payload Envelope had execution requests root of %s but ExecutionPayload Bid had %s",
                         executionRequestsRoot, bidExecutionRequestsRoot));
-              }
-
-              /*
-               * Not a spec rule. An envelope with an invalid signature was already received for
-               * this block root and builder, and the payload for the block is already imported, so
-               * nothing is lost by skipping the signing root and signature verification. Without
-               * the imported check, invalid envelopes sent ahead of the builder's could get the
-               * valid one ignored.
-               */
-              if (invalidSignaturePayloads.contains(envelope.getBlockRootAndBuilderIndex())
-                  && gossipValidationHelper.isExecutionPayloadImported(
-                      envelope.getBeaconBlockRoot())) {
-                LOG.trace(
-                    "Already received execution payload envelope with invalid signature for block root {} from builder with index {} and the payload is already imported. Ignoring the execution payload envelope",
-                    envelope.getBeaconBlockRoot(),
-                    envelope.getBuilderIndex());
-                return Optional.of(
-                    ignore(
-                        "Already received execution payload envelope with invalid signature for block root %s from builder with index %s and the payload is already imported",
-                        envelope.getBeaconBlockRoot(), envelope.getBuilderIndex()));
               }
 
               return Optional.empty();
