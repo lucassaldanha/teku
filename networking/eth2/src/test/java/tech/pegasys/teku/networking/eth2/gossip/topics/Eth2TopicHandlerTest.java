@@ -21,6 +21,7 @@ import static org.mockito.Mockito.verify;
 import static tech.pegasys.teku.infrastructure.async.SafeFutureAssert.assertThatSafeFuture;
 
 import io.libp2p.core.pubsub.ValidationResult;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -359,6 +360,7 @@ public class Eth2TopicHandlerTest {
             },
             debugDataDumper,
             2,
+            Duration.ZERO,
             discardedCounter);
     topicHandler.setDeserializer(countingDeserializer(deserializeCount));
 
@@ -411,6 +413,51 @@ public class Eth2TopicHandlerTest {
   }
 
   @Test
+  public void handleMessage_shouldIgnoreAndReleaseInFlightSlotWhenProcessingTimesOut() {
+    final List<SafeFuture<InternalValidationResult>> pendingValidations = new ArrayList<>();
+    final MockEth2TopicHandler topicHandler =
+        new MockEth2TopicHandler(
+            recentChainData,
+            spec,
+            asyncRunner,
+            (b, __) -> {
+              final SafeFuture<InternalValidationResult> validation = new SafeFuture<>();
+              pendingValidations.add(validation);
+              return validation;
+            },
+            debugDataDumper,
+            1,
+            Duration.ofSeconds(12));
+
+    final SafeFuture<ValidationResult> first =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    // runs the validation only, the timeout is still scheduled
+    asyncRunner.executeQueuedActions(1);
+    assertThat(first).isNotDone();
+    assertThat(topicHandler.getInFlightMessageCount()).isEqualTo(1);
+
+    // limit is 1 so a second message is dropped while the first holds the slot
+    assertThatSafeFuture(
+            topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty())))
+        .isCompletedWithValue(ValidationResult.Ignore);
+
+    asyncRunner.executeQueuedActions();
+    assertThatSafeFuture(first).isCompletedWithValue(ValidationResult.Ignore);
+    assertThat(topicHandler.getInFlightMessageCount()).isZero();
+
+    // late completion of the abandoned validation must not release the slot again
+    pendingValidations.getFirst().complete(InternalValidationResult.ACCEPT);
+    assertThat(topicHandler.getInFlightMessageCount()).isZero();
+
+    final SafeFuture<ValidationResult> second =
+        topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
+    asyncRunner.executeQueuedActions(1);
+    assertThat(pendingValidations).hasSize(2);
+    assertThat(second).isNotDone();
+    assertThat(topicHandler.getInFlightMessageCount()).isEqualTo(1);
+  }
+
+  @Test
   public void getMaxMessageSize_shouldAllowWorstCaseSnappyExpansionOfMaxPayload() {
     final MockEth2TopicHandler topicHandler =
         new MockEth2TopicHandler(
@@ -453,6 +500,7 @@ public class Eth2TopicHandlerTest {
           processor,
           debugDataDumper,
           Integer.MAX_VALUE,
+          Duration.ZERO,
           NoOpMetricsSystem.NO_OP_COUNTER);
     }
 
@@ -470,6 +518,7 @@ public class Eth2TopicHandlerTest {
           processor,
           debugDataDumper,
           maxInFlightMessages,
+          Duration.ZERO,
           NoOpMetricsSystem.NO_OP_COUNTER);
     }
 
@@ -480,6 +529,26 @@ public class Eth2TopicHandlerTest {
         final OperationProcessor<SignedBeaconBlock> processor,
         final DebugDataDumper debugDataDumper,
         final int maxInFlightMessages,
+        final Duration inFlightTimeout) {
+      this(
+          recentChainData,
+          spec,
+          asyncRunner,
+          processor,
+          debugDataDumper,
+          maxInFlightMessages,
+          inFlightTimeout,
+          NoOpMetricsSystem.NO_OP_COUNTER);
+    }
+
+    protected MockEth2TopicHandler(
+        final RecentChainData recentChainData,
+        final Spec spec,
+        final AsyncRunner asyncRunner,
+        final OperationProcessor<SignedBeaconBlock> processor,
+        final DebugDataDumper debugDataDumper,
+        final int maxInFlightMessages,
+        final Duration inFlightTimeout,
         final Counter inFlightLimitDiscardedCounter) {
       super(
           recentChainData,
@@ -494,6 +563,7 @@ public class Eth2TopicHandlerTest {
           spec.getNetworkingConfig(),
           debugDataDumper,
           maxInFlightMessages,
+          inFlightTimeout,
           inFlightLimitDiscardedCounter);
       this.forkDigest =
           recentChainData.getForkDigestByMilestone(SpecMilestone.PHASE0).orElseThrow();

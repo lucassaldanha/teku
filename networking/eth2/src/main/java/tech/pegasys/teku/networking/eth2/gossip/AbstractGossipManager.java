@@ -14,6 +14,7 @@
 package tech.pegasys.teku.networking.eth2.gossip;
 
 import com.google.common.annotations.VisibleForTesting;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
@@ -82,6 +83,7 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
         gossipFailureLogger,
         debugDataDumper,
         Integer.MAX_VALUE,
+        Duration.ZERO,
         new NoOpMetricsSystem());
   }
 
@@ -101,6 +103,7 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
       final GossipFailureLogger gossipFailureLogger,
       final DebugDataDumper debugDataDumper,
       final int maxInFlightMessages,
+      final Duration inFlightTimeout,
       final MetricsSystem metricsSystem) {
     this.gossipNetwork = gossipNetwork;
     this.topicHandler =
@@ -117,6 +120,7 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
             networkingConfig,
             debugDataDumper,
             maxInFlightMessages,
+            inFlightTimeout,
             metricsSystem
                 .createLabelledCounter(
                     TekuMetricCategory.NETWORK,

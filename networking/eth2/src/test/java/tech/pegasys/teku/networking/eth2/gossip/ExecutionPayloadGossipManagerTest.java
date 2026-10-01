@@ -101,7 +101,7 @@ public class ExecutionPayloadGossipManagerTest {
       results.add(
           topicHandler.handleMessage(topicHandler.prepareMessage(message, Optional.empty())));
     }
-    asyncRunner.executeQueuedActions();
+    asyncRunner.executeQueuedActions(MAX_IN_FLIGHT_MESSAGES);
 
     verify(processor, times(MAX_IN_FLIGHT_MESSAGES)).process(any(), any());
     assertThat(results.subList(0, MAX_IN_FLIGHT_MESSAGES)).allMatch(result -> !result.isDone());

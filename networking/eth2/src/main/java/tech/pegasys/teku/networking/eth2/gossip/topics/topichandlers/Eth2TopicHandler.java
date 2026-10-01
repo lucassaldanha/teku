@@ -16,8 +16,10 @@ package tech.pegasys.teku.networking.eth2.gossip.topics.topichandlers;
 import static tech.pegasys.teku.infrastructure.logging.P2PLogger.P2P_LOG;
 
 import io.libp2p.core.pubsub.ValidationResult;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,6 +66,7 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
   private final String topic;
   final TimeProvider timeProvider;
   private final int maxInFlightMessages;
+  private final Duration inFlightTimeout;
   private final AtomicInteger inFlightMessages = new AtomicInteger();
   private final Counter inFlightLimitDiscardedCounter;
 
@@ -93,12 +96,16 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
         networkingConfig,
         debugDataDumper,
         Integer.MAX_VALUE,
+        Duration.ZERO,
         NoOpMetricsSystem.NO_OP_COUNTER);
   }
 
   /**
    * @param maxInFlightMessages maximum number of messages queued or being validated at once. Any
    *     further message is ignored without being decoded.
+   * @param inFlightTimeout maximum time a message may hold an in-flight slot, after which it is
+   *     ignored and the slot released (the underlying validation may keep running). {@link
+   *     Duration#ZERO} means no timeout.
    * @param inFlightLimitDiscardedCounter incremented for each message ignored because of the limit
    */
   public Eth2TopicHandler(
@@ -113,8 +120,10 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
       final NetworkingSpecConfig networkingConfig,
       final DebugDataDumper debugDataDumper,
       final int maxInFlightMessages,
+      final Duration inFlightTimeout,
       final Counter inFlightLimitDiscardedCounter) {
     this.maxInFlightMessages = maxInFlightMessages;
+    this.inFlightTimeout = inFlightTimeout;
     this.inFlightLimitDiscardedCounter = inFlightLimitDiscardedCounter;
     this.asyncRunner = asyncRunner;
     this.processor = processor;
@@ -170,8 +179,8 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
     }
     // SSZ decode on the async runner so large messages are not decoded on the libp2p thread and
     // are not held decoded while waiting in the queue
-    return asyncRunner
-        .runAsync(
+    final SafeFuture<ValidationResult> validation =
+        asyncRunner.runAsync(
             () -> {
               final MessageT deserialized = deserialize(message);
               if (!forkValidator.isValid(deserialized)) {
@@ -187,7 +196,11 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
                         return GossipSubValidationUtil.fromInternalValidationResult(
                             internalValidation);
                       });
-            })
+            });
+    // alwaysRun is attached once to the final future, so the slot is released exactly once
+    return (inFlightTimeout.isZero()
+            ? validation
+            : validation.orTimeout(asyncRunner, inFlightTimeout))
         .exceptionally(error -> handleMessageProcessingError(message, error))
         .alwaysRun(inFlightMessages::decrementAndGet);
   }
@@ -223,7 +236,16 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
   protected ValidationResult handleMessageProcessingError(
       final PreparedGossipMessage message, final Throwable err) {
     final ValidationResult response;
-    if (ExceptionUtil.hasCause(err, DecodingException.class)) {
+    if (ExceptionUtil.hasCause(err, TimeoutException.class)) {
+      loggerThrottler.invoke(
+          timeProvider.getTimeInSeconds(),
+          (log) ->
+              log.warn(
+                  "Ignoring gossip message for topic {} because processing timed out after {}",
+                  getTopic(),
+                  inFlightTimeout));
+      response = ValidationResult.Ignore;
+    } else if (ExceptionUtil.hasCause(err, DecodingException.class)) {
 
       debugDataDumper.saveGossipMessageDecodingError(
           getTopic(), message.getArrivalTimestamp(), message::getOriginalMessage, err);
