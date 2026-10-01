@@ -102,7 +102,8 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
 
   /**
    * @param maxInFlightMessages maximum number of messages queued or being validated at once. Any
-   *     further message is ignored without being decoded.
+   *     further message is ignored before SSZ decoding (snappy decompression to compute the message
+   *     id has already happened by then).
    * @param inFlightTimeout maximum time a message may hold an in-flight slot, after which it is
    *     ignored and the slot released (the underlying validation may keep running). {@link
    *     Duration#ZERO} means no timeout.
