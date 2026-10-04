@@ -61,6 +61,11 @@ public interface BlockImportResult {
     return new FailedBlockImportResult(FailureReason.FAILED_STATE_TRANSITION, Optional.of(cause));
   }
 
+  static BlockImportResult failedInvalidProposerSignature(final Exception cause) {
+    return new FailedBlockImportResult(
+        FailureReason.FAILED_INVALID_PROPOSER_SIGNATURE, Optional.of(cause));
+  }
+
   static BlockImportResult internalError(final Throwable cause) {
     return new FailedBlockImportResult(FailureReason.INTERNAL_ERROR, Optional.of(cause));
   }
@@ -86,6 +91,9 @@ public interface BlockImportResult {
     BUILDER_WITHHOLD,
     DOES_NOT_DESCEND_FROM_LATEST_FINALIZED,
     FAILED_STATE_TRANSITION,
+    // The proposer signature did not verify. Says nothing about the block message itself, so the
+    // block root must not be treated as invalid.
+    FAILED_INVALID_PROPOSER_SIGNATURE,
     FAILED_WEAK_SUBJECTIVITY_CHECKS,
     FAILED_EXECUTION_PAYLOAD_EXECUTION,
     FAILED_EXECUTION_PAYLOAD_EXECUTION_SYNCING,

@@ -195,6 +195,89 @@ public class BlockGossipValidatorTest {
   }
 
   @TestTemplate
+  void shouldRejectBlockWithInvalidSignatureWhenParentIsUnavailable() {
+    final SignedBeaconBlock forged = withUnknownParent(nextSignedBlock(), true);
+    assertThat(blockGossipValidator.validate(forged, true))
+        .isCompletedWithValueMatching(InternalValidationResult::isReject);
+  }
+
+  @TestTemplate
+  void shouldSaveForFutureBlockWithValidSignatureWhenParentIsUnavailable() {
+    final SignedBeaconBlock block = withUnknownParent(nextSignedBlock(), false);
+    assertThat(blockGossipValidator.validate(block, true))
+        .isCompletedWithValueMatching(InternalValidationResult::isSaveForFuture);
+  }
+
+  @TestTemplate
+  void shouldSaveForFutureUnverifiableBlockWhenParentIsUnavailable() {
+    // proposer index beyond the head state's registry: the signature cannot be checked yet
+    final SignedBeaconBlock signedBlock = nextSignedBlock();
+    final BeaconBlock message = signedBlock.getMessage();
+    final BeaconBlock unverifiable =
+        new BeaconBlock(
+            message.getSchema(),
+            message.getSlot(),
+            UInt64.valueOf(1_000_000),
+            Bytes32.ZERO,
+            message.getStateRoot(),
+            message.getBody());
+    final SignedBeaconBlock block =
+        SignedBeaconBlock.create(spec, unverifiable, BLSTestUtil.randomSignature(0));
+    assertThat(blockGossipValidator.validate(block, true))
+        .isCompletedWithValueMatching(InternalValidationResult::isSaveForFuture);
+  }
+
+  @TestTemplate
+  void shouldRejectBlockWithInvalidSignatureFromFutureSlot() {
+    final UInt64 futureSlot = recentChainData.getHeadSlot().plus(10);
+    final SignedBeaconBlock block =
+        storageSystem.chainBuilder().generateBlockAtSlot(futureSlot).getBlock();
+    final SignedBeaconBlock forged =
+        SignedBeaconBlock.create(spec, block.getMessage(), BLSTestUtil.randomSignature(0));
+    assertThat(blockGossipValidator.validate(forged, true))
+        .isCompletedWithValueMatching(InternalValidationResult::isReject);
+  }
+
+  private SignedBeaconBlock nextSignedBlock() {
+    final UInt64 nextSlot = recentChainData.getHeadSlot().plus(ONE);
+    storageSystem.chainUpdater().setCurrentSlot(nextSlot);
+    return storageSystem.chainBuilder().generateBlockAtSlot(nextSlot).getBlock();
+  }
+
+  /**
+   * Same message with a parent root the store does not have, signed by the real proposer or not.
+   */
+  private SignedBeaconBlock withUnknownParent(
+      final SignedBeaconBlock signedBlock, final boolean invalidSignature) {
+    final BeaconBlock message = signedBlock.getMessage();
+    final BeaconBlock unknownParent =
+        new BeaconBlock(
+            message.getSchema(),
+            message.getSlot(),
+            message.getProposerIndex(),
+            Bytes32.ZERO,
+            message.getStateRoot(),
+            message.getBody());
+    if (invalidSignature) {
+      return SignedBeaconBlock.create(spec, unknownParent, BLSTestUtil.randomSignature(0));
+    }
+    final BLSSignature signature =
+        storageSystem
+            .chainBuilder()
+            .sign(
+                message.getProposerIndex().intValue(),
+                signer ->
+                    signer.signBlock(
+                        unknownParent,
+                        storageSystem
+                            .chainBuilder()
+                            .getLatestBlockAndState()
+                            .getState()
+                            .getForkInfo()));
+    return SignedBeaconBlock.create(spec, unknownParent, signature);
+  }
+
+  @TestTemplate
   void shouldReturnInvalidForBlockOlderThanFinalizedSlot() {
     UInt64 finalizedEpoch = UInt64.valueOf(10);
     UInt64 finalizedSlot = spec.computeStartSlotAtEpoch(finalizedEpoch);

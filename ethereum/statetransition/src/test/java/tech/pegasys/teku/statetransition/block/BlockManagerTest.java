@@ -118,6 +118,7 @@ import tech.pegasys.teku.statetransition.util.PoolFactory;
 import tech.pegasys.teku.statetransition.validation.BlockBroadcastValidator;
 import tech.pegasys.teku.statetransition.validation.BlockBroadcastValidator.BroadcastValidationResult;
 import tech.pegasys.teku.statetransition.validation.BlockValidator;
+import tech.pegasys.teku.statetransition.validation.GossipValidationHelper;
 import tech.pegasys.teku.statetransition.validation.InternalValidationResult;
 import tech.pegasys.teku.storage.client.ChainHead;
 import tech.pegasys.teku.storage.client.RecentChainData;
@@ -182,6 +183,8 @@ public class BlockManagerTest {
             builder -> builder.blsSignatureVerifier(BLSSignatureVerifier.NOOP)));
   }
 
+  private boolean signGenesisDeposits = false;
+
   private void setupWithSpec(final Spec spec) {
     spec.reinitializeForTesting(blobSidecarManager, NOOP_DATACOLUMN_SIDECAR, NoOpKZG.INSTANCE);
     this.spec = spec;
@@ -229,7 +232,8 @@ public class BlockManagerTest {
     forwardBlockImportedNotificationsTo(blockManager);
     localChain
         .chainUpdater()
-        .initializeGenesisWithPayload(false, dataStructureUtil.randomExecutionPayloadHeader());
+        .initializeGenesisWithPayload(
+            signGenesisDeposits, dataStructureUtil.randomExecutionPayloadHeader());
     assertThat(blockManager.start()).isCompleted();
     when(blobSidecarManager.createAvailabilityChecker(any()))
         .thenReturn(AvailabilityChecker.NOOP_BLOB_SIDECAR);
@@ -1337,5 +1341,130 @@ public class BlockManagerTest {
     } catch (final InterruptedException | ExecutionException | TimeoutException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  @Test
+  public void shouldImportGenuineBlockAfterPooledInvalidSignatureCopyOfItFailed() {
+    setupWithRealSignatureVerification();
+    final SignedBeaconBlock parent = localChain.chainBuilder().generateBlockAtSlot(1).getBlock();
+    final SignedBeaconBlock child = localChain.chainBuilder().generateBlockAtSlot(2).getBlock();
+    final SignedBeaconBlock forgedChild = withInvalidSignature(child);
+    assertThat(forgedChild.getRoot()).isEqualTo(child.getRoot());
+    incrementSlotTo(UInt64.valueOf(2));
+
+    // The forged copy arrives first. Its parent is unknown so it is pooled unverified.
+    safeJoinBlockImport(forgedChild);
+    assertThat(pendingBlocks.contains(forgedChild)).isTrue();
+
+    // The parent arrives and the pooled copy is retried and fails its signature check.
+    safeJoinBlockImport(parent);
+    assertThat(pendingBlocks.contains(forgedChild)).isFalse();
+    assertThat(invalidBlockRoots).doesNotContainKey(child.getRoot());
+
+    // The genuine, correctly signed block must still import.
+    assertThatBlockImport(child).isCompletedWithValueMatching(BlockImportResult::isSuccessful);
+  }
+
+  @Test
+  public void shouldNotMarkBlockRootInvalidWhenOnlyTheSignatureIsInvalid() {
+    setupWithRealSignatureVerification();
+    final SignedBeaconBlock parent = localChain.chainBuilder().generateBlockAtSlot(1).getBlock();
+    final SignedBeaconBlock child = localChain.chainBuilder().generateBlockAtSlot(2).getBlock();
+    incrementSlotTo(UInt64.valueOf(2));
+    safeJoinBlockImport(parent);
+
+    // Same entry point a by-root RPC response uses: parent known, no gossip validation.
+    assertThatBlockImport(withInvalidSignature(child))
+        .isCompletedWithValueMatching(
+            result -> result.getFailureReason() == FailureReason.FAILED_INVALID_PROPOSER_SIGNATURE);
+    assertThat(invalidBlockRoots).isEmpty();
+
+    assertThatBlockImport(child).isCompletedWithValueMatching(BlockImportResult::isSuccessful);
+  }
+
+  @Test
+  public void shouldKeepDescendantsPendingWhenInvalidSignatureCopyOfTheirParentFails() {
+    setupWithRealSignatureVerification();
+    final SignedBeaconBlock parent = localChain.chainBuilder().generateBlockAtSlot(1).getBlock();
+    final SignedBeaconBlock child = localChain.chainBuilder().generateBlockAtSlot(2).getBlock();
+    final SignedBeaconBlock grandchild =
+        localChain.chainBuilder().generateBlockAtSlot(3).getBlock();
+    incrementSlotTo(UInt64.valueOf(3));
+
+    safeJoinBlockImport(withInvalidSignature(child));
+    safeJoinBlockImport(grandchild);
+    assertThat(pendingBlocks.contains(grandchild)).isTrue();
+
+    // Parent import retries the forged child, which fails. The grandchild must stay pooled.
+    safeJoinBlockImport(parent);
+    assertThat(pendingBlocks.contains(grandchild)).isTrue();
+    assertThat(invalidBlockRoots).isEmpty();
+
+    // The genuine child imports and pulls the grandchild in behind it.
+    safeJoinBlockImport(child);
+    assertThat(localRecentChainData.containsBlock(child.getRoot())).isTrue();
+    assertThat(localRecentChainData.containsBlock(grandchild.getRoot())).isTrue();
+    assertThat(pendingBlocks.contains(grandchild)).isFalse();
+  }
+
+  @Test
+  public void shouldReplacePooledInvalidSignatureCopyWhenGenuineBlockArrives() {
+    setupWithRealSignatureVerification();
+    final SignedBeaconBlock parent = localChain.chainBuilder().generateBlockAtSlot(1).getBlock();
+    final SignedBeaconBlock child = localChain.chainBuilder().generateBlockAtSlot(2).getBlock();
+    final SignedBeaconBlock forgedChild = withInvalidSignature(child);
+    incrementSlotTo(UInt64.valueOf(2));
+
+    safeJoinBlockImport(forgedChild);
+    assertThat(pendingBlocks.contains(forgedChild)).isTrue();
+
+    // The genuine block arrives while the forged copy is pooled. It must not be treated as known.
+    assertThatBlockImport(child)
+        .isCompletedWithValueMatching(
+            result -> result.getFailureReason() == FailureReason.UNKNOWN_PARENT);
+    assertThat(pendingBlockPool.get(child.getRoot()).orElseThrow().getSignature())
+        .isEqualTo(child.getSignature());
+
+    safeJoinBlockImport(parent);
+    assertThat(localRecentChainData.containsBlock(child.getRoot())).isTrue();
+    assertThat(invalidBlockRoots).isEmpty();
+  }
+
+  @Test
+  public void shouldKeepPooledGenuineBlockWhenInvalidSignatureCopyArrivesLater() {
+    setupWithRealSignatureVerification();
+    final SignedBeaconBlock parent = localChain.chainBuilder().generateBlockAtSlot(1).getBlock();
+    final SignedBeaconBlock child = localChain.chainBuilder().generateBlockAtSlot(2).getBlock();
+    incrementSlotTo(UInt64.valueOf(2));
+
+    safeJoinBlockImport(child);
+    assertThat(pendingBlocks.contains(child)).isTrue();
+
+    // A forged copy arriving last must not evict the genuine pooled copy.
+    assertThatBlockImport(withInvalidSignature(child))
+        .isCompletedWithValueMatching(
+            result -> result.getFailureReason() == FailureReason.FAILED_INVALID_PROPOSER_SIGNATURE);
+    assertThat(pendingBlockPool.get(child.getRoot()).orElseThrow().getSignature())
+        .isEqualTo(child.getSignature());
+
+    safeJoinBlockImport(parent);
+    assertThat(localRecentChainData.containsBlock(child.getRoot())).isTrue();
+    assertThat(invalidBlockRoots).isEmpty();
+  }
+
+  private void setupWithRealSignatureVerification() {
+    signGenesisDeposits = true;
+    setupWithSpec(TestSpecFactory.createMinimalDeneb());
+    final GossipValidationHelper gossipValidationHelper =
+        new GossipValidationHelper(spec, localRecentChainData, new StubMetricsSystem());
+    when(blockValidator.isProposerSignatureValidAgainstHeadState(any()))
+        .thenAnswer(
+            invocation ->
+                gossipValidationHelper.isProposerSignatureValidAgainstHeadState(
+                    invocation.getArgument(0)));
+  }
+
+  private SignedBeaconBlock withInvalidSignature(final SignedBeaconBlock block) {
+    return block.getSchema().create(block.getMessage(), dataStructureUtil.randomSignature());
   }
 }

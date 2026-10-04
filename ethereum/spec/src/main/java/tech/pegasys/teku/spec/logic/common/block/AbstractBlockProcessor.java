@@ -70,6 +70,7 @@ import tech.pegasys.teku.spec.logic.common.operations.validation.OperationValida
 import tech.pegasys.teku.spec.logic.common.statetransition.blockvalidator.BatchSignatureVerifier;
 import tech.pegasys.teku.spec.logic.common.statetransition.blockvalidator.BlockValidationResult;
 import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.BlockProcessingException;
+import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.InvalidBlockSignatureException;
 import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.StateTransitionException;
 import tech.pegasys.teku.spec.logic.common.util.AttestationUtil;
 import tech.pegasys.teku.spec.logic.common.util.BeaconStateUtil;
@@ -134,6 +135,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final IndexedAttestationCache indexedAttestationCache,
       final Optional<? extends OptimisticExecutionPayloadExecutor> payloadExecutor)
       throws StateTransitionException {
+    // Spec order: verify_block_signature runs before process_block. Checking the proposer
+    // signature eagerly keeps an unauthenticated block from costing a full state transition and an
+    // execution payload execution, and lets callers tell a bad signature apart from a bad block.
+    verifyProposerSignature(blockSlotState, signedBlock);
     final BatchSignatureVerifier signatureVerifier = specConfig.createBatchSignatureVerifier();
     final BeaconState result =
         processAndValidateBlock(
@@ -141,12 +146,40 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             blockSlotState,
             indexedAttestationCache,
             signatureVerifier,
-            payloadExecutor);
+            payloadExecutor,
+            true);
     if (!signatureVerifier.batchVerify()) {
       throw new StateTransitionException(
           "Batch signature verification failed for block " + signedBlock.toLogString());
     }
     return result;
+  }
+
+  @Override
+  public void verifyProposerSignature(
+      final BeaconState blockSlotState, final SignedBeaconBlock signedBlock)
+      throws StateTransitionException {
+    final BlockValidationResult result;
+    try {
+      // A wrong proposer index makes the message itself invalid, so it must not be reported as a
+      // bad signature. process_block_header would reject it.
+      final int expectedProposerIndex =
+          beaconStateAccessors.getBeaconProposerIndex(blockSlotState, signedBlock.getSlot());
+      if (!signedBlock.getProposerIndex().equals(UInt64.valueOf(expectedProposerIndex))) {
+        throw new StateTransitionException(
+            "Block proposer index "
+                + signedBlock.getProposerIndex()
+                + " does not match expected proposer index "
+                + expectedProposerIndex);
+      }
+      result =
+          verifyBlockSignature(blockSlotState, signedBlock, specConfig.getBLSSignatureVerifier());
+    } catch (final IllegalArgumentException e) {
+      throw new StateTransitionException(e);
+    }
+    if (!result.isValid()) {
+      throw new InvalidBlockSignatureException(result.getFailureReason());
+    }
   }
 
   @Override
@@ -156,6 +189,23 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final IndexedAttestationCache indexedAttestationCache,
       final BLSSignatureVerifier signatureVerifier,
       final Optional<? extends OptimisticExecutionPayloadExecutor> payloadExecutor)
+      throws StateTransitionException {
+    return processAndValidateBlock(
+        signedBlock,
+        blockSlotState,
+        indexedAttestationCache,
+        signatureVerifier,
+        payloadExecutor,
+        false);
+  }
+
+  private BeaconState processAndValidateBlock(
+      final SignedBeaconBlock signedBlock,
+      final BeaconState blockSlotState,
+      final IndexedAttestationCache indexedAttestationCache,
+      final BLSSignatureVerifier signatureVerifier,
+      final Optional<? extends OptimisticExecutionPayloadExecutor> payloadExecutor,
+      final boolean proposerSignatureVerified)
       throws StateTransitionException {
     try {
       final BlockValidationResult preValidationResult =
@@ -175,7 +225,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
       final BlockValidationResult blockValidationResult =
           validateBlockPostProcessing(
-              blockSlotState, signedBlock, postState, indexedAttestationCache, signatureVerifier);
+              blockSlotState,
+              signedBlock,
+              postState,
+              indexedAttestationCache,
+              signatureVerifier,
+              proposerSignatureVerified);
 
       if (!blockValidationResult.isValid()) {
         throw new BlockProcessingException(blockValidationResult.getFailureReason());
@@ -217,12 +272,18 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final SignedBeaconBlock block,
       final BeaconState postState,
       final IndexedAttestationCache indexedAttestationCache,
-      final BLSSignatureVerifier signatureVerifier) {
+      final BLSSignatureVerifier signatureVerifier,
+      final boolean proposerSignatureVerified) {
     return BlockValidationResult.allOf(
+        () ->
+            proposerSignatureVerified
+                ? BlockValidationResult.SUCCESSFUL
+                : verifyBlockSignature(preState, block, signatureVerifier),
         () -> verifyBlockSignatures(preState, block, indexedAttestationCache, signatureVerifier),
         () -> validatePostState(postState, block));
   }
 
+  /** Verifies every signature in the block body. The proposer signature is checked separately. */
   @CheckReturnValue
   protected BlockValidationResult verifyBlockSignatures(
       final BeaconState preState,
@@ -233,7 +294,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final BeaconBlockBody blockBody = blockMessage.getBody();
 
     return BlockValidationResult.allOf(
-        () -> verifyBlockSignature(preState, block, signatureVerifier),
         () ->
             verifyAttestationSignatures(
                 preState, blockBody.getAttestations(), signatureVerifier, indexedAttestationCache),

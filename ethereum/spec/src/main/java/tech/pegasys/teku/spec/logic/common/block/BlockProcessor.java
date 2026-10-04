@@ -45,6 +45,7 @@ import tech.pegasys.teku.spec.datastructures.state.beaconstate.versions.altair.B
 import tech.pegasys.teku.spec.logic.common.helpers.BeaconStateMutators.ValidatorExitContext;
 import tech.pegasys.teku.spec.logic.common.operations.validation.OperationInvalidReason;
 import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.BlockProcessingException;
+import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.InvalidBlockSignatureException;
 import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.StateTransitionException;
 import tech.pegasys.teku.spec.logic.versions.altair.block.BlockProcessorAltair;
 import tech.pegasys.teku.spec.logic.versions.bellatrix.block.OptimisticExecutionPayloadExecutor;
@@ -52,6 +53,16 @@ import tech.pegasys.teku.spec.logic.versions.bellatrix.block.OptimisticExecution
 public interface BlockProcessor {
 
   Optional<OperationInvalidReason> validateAttestation(BeaconState state, AttestationData data);
+
+  /**
+   * Verifies the proposer signature of {@code signedBlock} against {@code blockSlotState}, which
+   * must already be advanced to the block's slot.
+   *
+   * @throws InvalidBlockSignatureException if the signature does not verify
+   * @throws StateTransitionException if the proposer cannot be determined from the state
+   */
+  void verifyProposerSignature(BeaconState blockSlotState, SignedBeaconBlock signedBlock)
+      throws StateTransitionException;
 
   BeaconState processAndValidateBlock(
       SignedBeaconBlock signedBlock,

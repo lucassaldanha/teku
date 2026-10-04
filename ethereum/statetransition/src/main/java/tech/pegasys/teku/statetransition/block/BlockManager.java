@@ -42,6 +42,7 @@ import tech.pegasys.teku.spec.datastructures.epbs.versions.gloas.SignedExecution
 import tech.pegasys.teku.spec.datastructures.execution.ExecutionPayloadSummary;
 import tech.pegasys.teku.spec.datastructures.validator.BroadcastValidationLevel;
 import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.BlockProcessingException;
+import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.InvalidBlockSignatureException;
 import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.StateTransitionException;
 import tech.pegasys.teku.spec.logic.common.statetransition.results.BlockImportResult;
 import tech.pegasys.teku.spec.logic.common.statetransition.results.BlockImportResult.FailureReason;
@@ -318,18 +319,18 @@ public class BlockManager extends Service
       final BlockBroadcastValidator blockBroadcastValidator,
       final Optional<RemoteOrigin> origin,
       final boolean needsGossipValidationOnRetry) {
+    final Supplier<SafeFuture<BlockImportResult>> importBlock =
+        () ->
+            handleBlockImport(
+                    block,
+                    blockImportPerformance,
+                    blockBroadcastValidator,
+                    origin,
+                    needsGossipValidationOnRetry)
+                .thenPeek(result -> lateBlockImportCheck(blockImportPerformance, block, result));
     return handleInvalidBlock(block)
-        .or(() -> handleKnownBlock(block))
-        .orElseGet(
-            () ->
-                handleBlockImport(
-                        block,
-                        blockImportPerformance,
-                        blockBroadcastValidator,
-                        origin,
-                        needsGossipValidationOnRetry)
-                    .thenPeek(
-                        result -> lateBlockImportCheck(blockImportPerformance, block, result)));
+        .or(() -> handleKnownBlock(block, importBlock))
+        .orElseGet(importBlock);
   }
 
   private Optional<BlockImportResult> propagateInvalidity(final SignedBeaconBlock block) {
@@ -353,8 +354,32 @@ public class BlockManager extends Service
     return propagateInvalidity(block).map(SafeFuture::completedFuture);
   }
 
-  private Optional<SafeFuture<BlockImportResult>> handleKnownBlock(final SignedBeaconBlock block) {
-    if (pendingBlockPool.contains(block) || futureBlockTracker.contains(block)) {
+  private Optional<SafeFuture<BlockImportResult>> handleKnownBlock(
+      final SignedBeaconBlock block, final Supplier<SafeFuture<BlockImportResult>> importBlock) {
+    final Optional<SignedBeaconBlock> pendingCopy = pendingBlockPool.get(block.getRoot());
+    if (pendingCopy.isPresent() && !pendingCopy.get().getSignature().equals(block.getSignature())) {
+      // A pooled block has not been authenticated, so a copy of the same message with a different
+      // signature is not "known". Let the signature decide which copy to keep, not arrival order:
+      // the new copy replaces the pooled one only if its signature verifies.
+      return Optional.of(
+          blockValidator
+              .isProposerSignatureValidAgainstHeadState(block)
+              .thenCompose(
+                  maybeValid -> {
+                    if (maybeValid.isEmpty()) {
+                      return SafeFuture.completedFuture(BlockImportResult.knownBlock(block, true));
+                    }
+                    if (!maybeValid.get()) {
+                      return SafeFuture.completedFuture(
+                          BlockImportResult.failedInvalidProposerSignature(
+                              new InvalidBlockSignatureException(
+                                  "Invalid block signature: " + block.toLogString())));
+                    }
+                    pendingBlockPool.remove(pendingCopy.get());
+                    return importBlock.get();
+                  }));
+    }
+    if (pendingCopy.isPresent() || futureBlockTracker.contains(block)) {
       // Pending and future blocks can't have been executed yet so must be marked optimistic
       return Optional.of(SafeFuture.completedFuture(BlockImportResult.knownBlock(block, true)));
     }
@@ -432,6 +457,14 @@ public class BlockManager extends Service
                       LOG.warn(
                           "Unable to import block {} due to failed broadcast validation",
                           block.toLogString());
+                  case FAILED_INVALID_PROPOSER_SIGNATURE -> {
+                    // Only the signature on this copy is bad. The block root is shared with any
+                    // correctly signed copy, so it must not be marked invalid and descendants
+                    // waiting on it must keep waiting.
+                    logFailedBlockImport(block, result.getFailureReason());
+                    pendingBlockPool.remove(block);
+                    blockEventsListener.removeAllForBlock(block.getSlotAndBlockRoot());
+                  }
 
                   // let's avoid default: so we don't forget to explicitly handle new cases
                   case DOES_NOT_DESCEND_FROM_LATEST_FINALIZED,
@@ -517,6 +550,10 @@ public class BlockManager extends Service
 
   private static boolean internalErrorToBeConsiderAsInvalidBlock(final Throwable internalError) {
     // hasCause also checks the exception itself
+    if (ExceptionUtil.hasCause(internalError, InvalidBlockSignatureException.class)) {
+      // only the signature on this copy is bad, the block root may still be valid
+      return false;
+    }
     return INVALID_BLOCK_INTERNAL_ERRORS.stream()
         .anyMatch(errorType -> ExceptionUtil.hasCause(internalError, errorType));
   }

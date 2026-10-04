@@ -78,6 +78,7 @@ import tech.pegasys.teku.spec.datastructures.attestation.ValidatableAttestation;
 import tech.pegasys.teku.spec.datastructures.blobs.versions.deneb.BlobSidecar;
 import tech.pegasys.teku.spec.datastructures.blocks.Eth1Data;
 import tech.pegasys.teku.spec.datastructures.blocks.MinimalBeaconBlockSummary;
+import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlock;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBlockAndState;
 import tech.pegasys.teku.spec.datastructures.epbs.versions.gloas.PayloadAttestation;
 import tech.pegasys.teku.spec.datastructures.epbs.versions.gloas.PayloadAttestationData;
@@ -470,6 +471,25 @@ class ForkChoiceTest {
             eq(blockAndState.getBlock()),
             eq(FailureReason.FAILED_STATE_TRANSITION.toString()),
             eq(Optional.of(blockException)));
+    verify(blockBroadcastValidator, never()).onConsensusValidationSucceeded();
+  }
+
+  @Test
+  void onBlock_shouldRejectInvalidProposerSignatureBeforeExecutingPayload() {
+    setupWithSpec(TestSpecFactory.createMinimalDeneb());
+    final SignedBlockAndState blockAndState = chainBuilder.generateBlockAtSlot(ONE);
+    storageSystem.chainUpdater().advanceCurrentSlotToAtLeast(blockAndState.getSlot());
+    executionLayer = mock(ExecutionLayerChannelStub.class);
+    final SignedBeaconBlock forgedBlock =
+        SignedBeaconBlock.create(
+            spec, blockAndState.getBlock().getMessage(), dataStructureUtil.randomSignature());
+
+    final SafeFuture<BlockImportResult> result =
+        forkChoice.onBlock(forgedBlock, Optional.empty(), blockBroadcastValidator, executionLayer);
+
+    assertBlockImportFailure(result, FailureReason.FAILED_INVALID_PROPOSER_SIGNATURE);
+    verify(executionLayer, never()).engineNewPayload(any(), any());
+    verify(blobSidecarsAvailabilityChecker, never()).initiateDataAvailabilityCheck();
     verify(blockBroadcastValidator, never()).onConsensusValidationSucceeded();
   }
 

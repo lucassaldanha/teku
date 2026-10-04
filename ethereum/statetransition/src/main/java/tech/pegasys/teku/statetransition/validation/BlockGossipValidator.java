@@ -114,7 +114,7 @@ public class BlockGossipValidator {
      */
     if (gossipValidationHelper.isSlotFromFuture(block.getSlot())) {
       LOG.trace("BlockValidator: Block is from the future. Saving for future processing.");
-      return completedFuture(InternalValidationResult.SAVE_FOR_FUTURE);
+      return saveForFutureUnlessSignatureIsInvalid(block);
     }
 
     if (gossipValidationHelper.isBlockAvailable(block.getRoot())) {
@@ -133,7 +133,7 @@ public class BlockGossipValidator {
      */
     if (!gossipValidationHelper.isBlockAvailable(block.getParentRoot())) {
       LOG.trace("Block parent is not available. Saving for future processing.");
-      return completedFuture(InternalValidationResult.SAVE_FOR_FUTURE);
+      return saveForFutureUnlessSignatureIsInvalid(block);
     }
 
     /*
@@ -154,7 +154,7 @@ public class BlockGossipValidator {
     if (maybeParentBlockSlot.isEmpty()) {
       LOG.trace(
           "BlockValidator: Parent block does not exist. It will be saved for future processing");
-      return completedFuture(InternalValidationResult.SAVE_FOR_FUTURE);
+      return saveForFutureUnlessSignatureIsInvalid(block);
     }
 
     /*
@@ -236,6 +236,16 @@ public class BlockGossipValidator {
       }
     }
 
+    /*
+     * [REJECT] The proposer signature, signed_beacon_block.signature, is valid with respect to the proposer_index pubkey.
+     *
+     * Checked before the bid parent validation below, which may queue the block, so that a block
+     * is never queued with an unverified signature.
+     */
+    if (!blockSignatureIsValidWithRespectToProposerIndex(block, parentState)) {
+      return reject("Block signature is invalid");
+    }
+
     if (maybeSignedExecutionPayloadBid.isPresent()) {
       final ExecutionPayloadBid executionPayloadBid =
           maybeSignedExecutionPayloadBid.get().getMessage();
@@ -262,12 +272,6 @@ public class BlockGossipValidator {
       }
     }
 
-    /*
-     * [REJECT] The proposer signature, signed_beacon_block.signature, is valid with respect to the proposer_index pubkey.
-     */
-    if (!blockSignatureIsValidWithRespectToProposerIndex(block, parentState)) {
-      return reject("Block signature is invalid");
-    }
     final EquivocationCheckResult secondEquivocationCheckResult =
         performBlockEquivocationCheck(markAsReceived, block);
 
@@ -348,6 +352,27 @@ public class BlockGossipValidator {
     FIRST_BLOCK_FOR_SLOT_PROPOSER,
     BLOCK_ALREADY_SEEN_FOR_SLOT_PROPOSER,
     EQUIVOCATING_BLOCK_FOR_SLOT_PROPOSER
+  }
+
+  /**
+   * A block whose parent state is not available cannot be fully validated yet, but a provably
+   * invalid proposer signature is a REJECT regardless. Without this check a copy of a block with a
+   * garbage signature would be queued under the genuine block's root.
+   */
+  private SafeFuture<InternalValidationResult> saveForFutureUnlessSignatureIsInvalid(
+      final SignedBeaconBlock block) {
+    return gossipValidationHelper
+        .isProposerSignatureValidAgainstHeadState(block)
+        .thenApply(
+            maybeValid ->
+                maybeValid.orElse(true)
+                    ? InternalValidationResult.SAVE_FOR_FUTURE
+                    : reject("Block signature is invalid"));
+  }
+
+  public SafeFuture<Optional<Boolean>> isProposerSignatureValidAgainstHeadState(
+      final SignedBeaconBlock block) {
+    return gossipValidationHelper.isProposerSignatureValidAgainstHeadState(block);
   }
 
   private boolean blockSignatureIsValidWithRespectToProposerIndex(

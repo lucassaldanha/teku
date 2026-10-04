@@ -17,3 +17,4 @@
  - The ENR `eth2` field now advertises the current fork version as `next_fork_version` when a BPO fork is scheduled before the next hard fork, as the Fulu p2p specification requires.
  - A block production request that fails no longer keeps its preparation for the slot, so a retry within the same slot starts from a fresh preparation.
  - Fixed valid voluntary exits and slashings referring to an earlier fork being rejected on gossip, which wrongly penalised the peers forwarding them.
+ - Block import now verifies the proposer signature before processing the block, as the spec's `state_transition` does, and reports an invalid signature separately from an invalid block. Blocks whose parent is not yet known are checked against the head state before being queued.

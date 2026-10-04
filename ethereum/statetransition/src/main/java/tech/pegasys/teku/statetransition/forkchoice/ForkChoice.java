@@ -83,9 +83,11 @@ import tech.pegasys.teku.spec.datastructures.util.AttestationProcessingResult.St
 import tech.pegasys.teku.spec.executionlayer.ExecutionLayerChannel;
 import tech.pegasys.teku.spec.executionlayer.ForkChoiceState;
 import tech.pegasys.teku.spec.executionlayer.PayloadStatus;
+import tech.pegasys.teku.spec.logic.common.block.BlockProcessor;
 import tech.pegasys.teku.spec.logic.common.execution.ExecutionPayloadVerificationException;
 import tech.pegasys.teku.spec.logic.common.statetransition.availability.AvailabilityChecker;
 import tech.pegasys.teku.spec.logic.common.statetransition.availability.DataAndValidationResult;
+import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.InvalidBlockSignatureException;
 import tech.pegasys.teku.spec.logic.common.statetransition.exceptions.StateTransitionException;
 import tech.pegasys.teku.spec.logic.common.statetransition.results.BlockImportResult;
 import tech.pegasys.teku.spec.logic.common.statetransition.results.BlockImportResult.FailureReason;
@@ -585,6 +587,22 @@ public class ForkChoice implements ForkChoiceUpdatedResultSubscriber {
       return SafeFuture.completedFuture(preconditionCheckResult);
     }
 
+    final BlockProcessor blockProcessor = spec.getBlockProcessor(block.getSlot());
+
+    // Authenticate the block before any work it can trigger, including the data availability
+    // fetches below. processAndValidateBlock verifies the signature again, which costs one pairing.
+    try {
+      blockProcessor.verifyProposerSignature(blockSlotState.get(), block);
+    } catch (final InvalidBlockSignatureException e) {
+      final BlockImportResult result = BlockImportResult.failedInvalidProposerSignature(e);
+      reportInvalidBlock(block, result);
+      return SafeFuture.completedFuture(result);
+    } catch (final StateTransitionException e) {
+      final BlockImportResult result = BlockImportResult.failedStateTransition(e);
+      reportInvalidBlock(block, result);
+      return SafeFuture.completedFuture(result);
+    }
+
     final CapturingIndexedAttestationCache indexedAttestationCache =
         IndexedAttestationCache.capturing();
 
@@ -596,12 +614,12 @@ public class ForkChoice implements ForkChoiceUpdatedResultSubscriber {
     final BeaconState postState;
     try {
       postState =
-          spec.getBlockProcessor(block.getSlot())
-              .processAndValidateBlock(
-                  block,
-                  blockSlotState.get(),
-                  indexedAttestationCache,
-                  Optional.of(payloadExecutor));
+          blockProcessor.processAndValidateBlock(
+              block, blockSlotState.get(), indexedAttestationCache, Optional.of(payloadExecutor));
+    } catch (final InvalidBlockSignatureException e) {
+      final BlockImportResult result = BlockImportResult.failedInvalidProposerSignature(e);
+      reportInvalidBlock(block, result);
+      return SafeFuture.completedFuture(result);
     } catch (final StateTransitionException e) {
       final BlockImportResult result = BlockImportResult.failedStateTransition(e);
       reportInvalidBlock(block, result);

@@ -90,6 +90,16 @@ public class PendingBlockPool implements SlotEventsChannel, FinalizedCheckpointC
     return !alreadyPending && blocksWaitingForParentExecutionPayload.contains(block.getRoot());
   }
 
+  public Optional<SignedBeaconBlock> get(final Bytes32 blockRoot) {
+    return blocksWaitingForParent
+        .get(blockRoot)
+        .or(
+            () ->
+                blocksWaitingForParentExecutionPayload
+                    .get(blockRoot)
+                    .map(PendingParentExecutionPayloadBlock::block));
+  }
+
   public boolean contains(final SignedBeaconBlock block) {
     return blocksWaitingForParent.contains(block)
         || blocksWaitingForParentExecutionPayload.contains(block.getRoot());

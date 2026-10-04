@@ -13,6 +13,7 @@
 
 package tech.pegasys.teku.statetransition.validation;
 
+import java.util.Optional;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlock;
 import tech.pegasys.teku.spec.datastructures.validator.BroadcastValidationLevel;
@@ -27,6 +28,12 @@ public class BlockValidator {
 
   public SafeFuture<InternalValidationResult> validateGossip(final SignedBeaconBlock block) {
     return blockGossipValidator.validate(block, true);
+  }
+
+  /** See {@link GossipValidationHelper#isProposerSignatureValidAgainstHeadState}. */
+  public SafeFuture<Optional<Boolean>> isProposerSignatureValidAgainstHeadState(
+      final SignedBeaconBlock block) {
+    return blockGossipValidator.isProposerSignatureValidAgainstHeadState(block);
   }
 
   public BlockBroadcastValidator initiateBroadcastValidation(

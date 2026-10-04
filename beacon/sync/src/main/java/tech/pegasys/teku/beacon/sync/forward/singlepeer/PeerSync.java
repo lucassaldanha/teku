@@ -56,6 +56,7 @@ public class PeerSync {
       List.of(
           BlockImportResult.FailureReason.FAILED_WEAK_SUBJECTIVITY_CHECKS,
           BlockImportResult.FailureReason.FAILED_STATE_TRANSITION,
+          BlockImportResult.FailureReason.FAILED_INVALID_PROPOSER_SIGNATURE,
           BlockImportResult.FailureReason.UNKNOWN_PARENT,
           BlockImportResult.FailureReason.FAILED_DATA_AVAILABILITY_CHECK_INVALID);
 

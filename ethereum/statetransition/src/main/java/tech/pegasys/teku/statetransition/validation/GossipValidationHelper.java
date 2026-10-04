@@ -26,6 +26,7 @@ import tech.pegasys.teku.bls.BLSSignature;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 import tech.pegasys.teku.spec.Spec;
+import tech.pegasys.teku.spec.constants.Domain;
 import tech.pegasys.teku.spec.datastructures.blocks.BeaconBlock;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlock;
 import tech.pegasys.teku.spec.datastructures.blocks.SlotAndBlockRoot;
@@ -169,6 +170,41 @@ public class GossipValidationHelper {
         signatureVerificationData.proposerIndex(),
         signatureVerificationData.signature(),
         signatureVerificationData.state());
+  }
+
+  /**
+   * Checks the proposer signature of a block whose parent state is not available, for example
+   * because the parent is unknown or the slot is in the future. The proposer key comes from the
+   * head state's validator registry, which only ever grows, and the domain from the fork schedule,
+   * so the result is exact whenever it can be computed.
+   *
+   * @return the verification result, or empty when it cannot be computed (no head state yet, or the
+   *     proposer index is not in the head state's registry)
+   */
+  public SafeFuture<Optional<Boolean>> isProposerSignatureValidAgainstHeadState(
+      final SignedBeaconBlock block) {
+    return recentChainData
+        .getBestState()
+        .map(
+            headStateFuture ->
+                headStateFuture.thenApply(
+                    headState ->
+                        spec.getValidatorPubKey(headState, block.getProposerIndex())
+                            .map(
+                                publicKey -> {
+                                  final UInt64 epoch = spec.computeEpochAtSlot(block.getSlot());
+                                  final Bytes32 domain =
+                                      spec.getDomain(
+                                          Domain.BEACON_PROPOSER,
+                                          epoch,
+                                          spec.getForkSchedule().getFork(epoch),
+                                          headState.getGenesisValidatorsRoot());
+                                  return BLS.verify(
+                                      publicKey,
+                                      spec.computeSigningRoot(block.getMessage(), domain),
+                                      block.getSignature());
+                                })))
+        .orElseGet(() -> SafeFuture.completedFuture(Optional.empty()));
   }
 
   /**
