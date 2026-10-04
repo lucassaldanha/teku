@@ -32,6 +32,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -380,6 +381,43 @@ class DefaultExecutionPayloadManagerTest {
     // only requested once
     executionPayloadManager.onBlockImported(block, false);
     assertThat(requestedRoots).hasSize(1);
+  }
+
+  @Test
+  public void shouldRequestPayloadEvictedWhileItsBlockIsBeingImported() {
+    final List<Bytes32> requestedRoots = new ArrayList<>();
+    executionPayloadManager.subscribeRequiredExecutionPayload(requestedRoots::add);
+    final SignedBeaconBlock realBlock = dataStructureUtil.randomSignedBeaconBlock(42);
+    queueForFuture(signedExecutionPayloadForBlock(realBlock));
+    for (int i = 0; i < 7; i++) {
+      queueForFuture(dataStructureUtil.randomSignedExecutionPayloadEnvelope(42));
+    }
+    // the ninth envelope is still being validated, completing it evicts the honest (oldest) one
+    final SignedExecutionPayloadEnvelope ninth =
+        dataStructureUtil.randomSignedExecutionPayloadEnvelope(42);
+    final SafeFuture<InternalValidationResult> ninthValidation = new SafeFuture<>();
+    when(executionPayloadGossipValidator.validate(ninth, Optional.empty()))
+        .thenReturn(ninthValidation);
+    executionPayloadManager.validateAndImportExecutionPayload(ninth).finishStackTrace();
+
+    // the eviction lands the moment onBlockImported reads the block message
+    final AtomicBoolean evicted = new AtomicBoolean();
+    final SignedBeaconBlock block = mock(SignedBeaconBlock.class);
+    when(block.getRoot()).thenReturn(realBlock.getRoot());
+    when(block.getMessage())
+        .thenAnswer(
+            invocation -> {
+              if (evicted.compareAndSet(false, true)) {
+                ninthValidation.complete(SAVE_FOR_FUTURE);
+              }
+              return realBlock.getMessage();
+            });
+
+    executionPayloadManager.onBlockImported(block, false);
+    asyncRunner.executeDueActions();
+
+    assertThat(requestedRoots).containsExactly(realBlock.getRoot());
+    verifyNoInteractions(forkChoice);
   }
 
   @Test

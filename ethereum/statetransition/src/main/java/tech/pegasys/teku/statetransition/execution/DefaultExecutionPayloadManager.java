@@ -323,19 +323,23 @@ public class DefaultExecutionPayloadManager
 
   @Override
   public void onBlockImported(final SignedBeaconBlock block, final boolean executionOptimistic) {
-    final boolean wasEvicted = evictedPendingBlockRoots.remove(block.getRoot());
-    // Process pending execution payload
-    final Optional<PendingExecutionPayload> pending =
+    final Bytes32 blockRoot = block.getRoot();
+    final Optional<BlockRootAndBuilderIndex> key =
         block
             .getMessage()
             .getBody()
             .toVersionGloas()
             .map(BeaconBlockBodyGloas::getSignedExecutionPayloadBid)
             .map(
-                bid ->
-                    new BlockRootAndBuilderIndex(
-                        block.getRoot(), bid.getMessage().getBuilderIndex()))
-            .map(pendingExecutionPayloads::remove);
+                bid -> new BlockRootAndBuilderIndex(blockRoot, bid.getMessage().getBuilderIndex()));
+    final Optional<PendingExecutionPayload> pending;
+    final boolean wasEvicted;
+    // same monitor as saveForFuture, so a concurrent eviction is seen either in the pool or in the
+    // marker set
+    synchronized (pendingExecutionPayloads) {
+      pending = key.map(pendingExecutionPayloads::remove);
+      wasEvicted = evictedPendingBlockRoots.remove(blockRoot);
+    }
     pending.ifPresent(
         pendingExecutionPayload ->
             validateAndImportExecutionPayload(
@@ -344,8 +348,8 @@ public class DefaultExecutionPayloadManager
                 .thenCompose(r -> publishPayload(r, pendingExecutionPayload.executionPayload()))
                 .finishError(LOG));
     if (wasEvicted && pending.isEmpty()) {
-      LOG.debug("Requesting evicted pending execution payload for block {}", block.getRoot());
-      requiredExecutionPayloadSubscribers.deliver(Consumer::accept, block.getRoot());
+      LOG.debug("Requesting evicted pending execution payload for block {}", blockRoot);
+      requiredExecutionPayloadSubscribers.deliver(Consumer::accept, blockRoot);
     }
   }
 
