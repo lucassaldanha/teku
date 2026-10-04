@@ -34,6 +34,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: 'recursive'
+          # The jars are rebuilt in this job and their manifest Implementation-Version comes from
+          # git describe; with a shallow, tagless checkout it is UNKNOWN+g<sha>.
+          fetch-depth: 0
+          fetch-tags: true
       - name: Prepare
         uses: ./.github/actions/prepare
       # v4.0.0
@@ -46,8 +50,12 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ inputs.assemble_run_id }}
           name: assemble-output
-          merge-multiple: true
-          path: ${{ github.workspace }}
+          path: ${{ runner.temp }}
+      - name: Unpack assemble-output
+        shell: bash
+        run: |
+          tar --use-compress-program=zstd -xf "$RUNNER_TEMP/assemble-output.tar.zst" -C "$GITHUB_WORKSPACE"
+          rm "$RUNNER_TEMP/assemble-output.tar.zst"
       - name: get workflow_details
         id: jdkDetails
         shell: bash
