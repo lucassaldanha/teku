@@ -17,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static tech.pegasys.teku.infrastructure.async.SafeFutureAssert.assertThatSafeFuture;
@@ -471,6 +472,7 @@ public class Eth2TopicHandlerTest {
       asyncRunner.executeQueuedActions();
       assertThatSafeFuture(result).isCompletedWithValue(ValidationResult.Invalid);
       assertThat(topicHandler.getInFlightMessageCount()).isZero();
+      assertThat(topicHandler.getOutstandingMessageCount()).isZero();
     }
   }
 
@@ -507,9 +509,13 @@ public class Eth2TopicHandlerTest {
     assertThatSafeFuture(first).isCompletedWithValue(ValidationResult.Ignore);
     assertThat(topicHandler.getInFlightMessageCount()).isZero();
 
+    // the abandoned validation still counts as outstanding until it actually finishes
+    assertThat(topicHandler.getOutstandingMessageCount()).isEqualTo(1);
+
     // late completion of the abandoned validation must not release the slot again
     pendingValidations.getFirst().complete(InternalValidationResult.ACCEPT);
     assertThat(topicHandler.getInFlightMessageCount()).isZero();
+    assertThat(topicHandler.getOutstandingMessageCount()).isZero();
 
     final SafeFuture<ValidationResult> second =
         topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()));
@@ -517,6 +523,73 @@ public class Eth2TopicHandlerTest {
     assertThat(pendingValidations).hasSize(2);
     assertThat(second).isNotDone();
     assertThat(topicHandler.getInFlightMessageCount()).isEqualTo(1);
+  }
+
+  @Test
+  public void handleMessage_shouldStopAdmittingWhenTimedOutValidationsReachTheOutstandingCap() {
+    final List<SafeFuture<InternalValidationResult>> pendingValidations = new ArrayList<>();
+    final Counter discardedCounter = mock(Counter.class);
+    final MockEth2TopicHandler topicHandler =
+        new MockEth2TopicHandler(
+            recentChainData,
+            spec,
+            asyncRunner,
+            (b, __) -> {
+              final SafeFuture<InternalValidationResult> validation = new SafeFuture<>();
+              pendingValidations.add(validation);
+              return validation;
+            },
+            debugDataDumper,
+            2,
+            Duration.ofSeconds(12),
+            discardedCounter);
+
+    final List<SafeFuture<ValidationResult>> results = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      results.add(
+          topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty())));
+    }
+    asyncRunner.executeQueuedActions(2);
+    assertThatSafeFuture(results.get(2)).isCompletedWithValue(ValidationResult.Ignore);
+    assertThat(topicHandler.getInFlightMessageCount()).isEqualTo(2);
+    assertThat(topicHandler.getOutstandingMessageCount()).isEqualTo(2);
+
+    // timeouts fire: in-flight slots are released but the validations are still running
+    asyncRunner.executeQueuedActions();
+    assertThatSafeFuture(results.get(0)).isCompletedWithValue(ValidationResult.Ignore);
+    assertThatSafeFuture(results.get(1)).isCompletedWithValue(ValidationResult.Ignore);
+    assertThat(topicHandler.getInFlightMessageCount()).isZero();
+    assertThat(topicHandler.getOutstandingMessageCount()).isEqualTo(2);
+
+    topicHandler
+        .handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()))
+        .finishStackTrace();
+    topicHandler
+        .handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()))
+        .finishStackTrace();
+    asyncRunner.executeQueuedActions(2);
+    assertThat(pendingValidations).hasSize(4);
+    assertThat(topicHandler.getOutstandingMessageCount()).isEqualTo(4);
+    asyncRunner.executeQueuedActions();
+    assertThat(topicHandler.getInFlightMessageCount()).isZero();
+    assertThat(topicHandler.getOutstandingMessageCount()).isEqualTo(4);
+
+    // the outstanding cap (2 x limit) is reached, so new messages are dropped synchronously
+    assertThatSafeFuture(
+            topicHandler.handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty())))
+        .isCompletedWithValue(ValidationResult.Ignore);
+    verify(discardedCounter, times(2)).inc();
+    asyncRunner.executeQueuedActions();
+    assertThat(pendingValidations).hasSize(4);
+
+    // finishing one abandoned validation frees an outstanding slot
+    pendingValidations.getFirst().complete(InternalValidationResult.ACCEPT);
+    assertThat(topicHandler.getOutstandingMessageCount()).isEqualTo(3);
+    topicHandler
+        .handleMessage(topicHandler.prepareMessage(blockBytes, Optional.empty()))
+        .finishStackTrace();
+    asyncRunner.executeQueuedActions(1);
+    assertThat(pendingValidations).hasSize(5);
   }
 
   private void assertSlotReleasedAfterEachOf(
@@ -529,6 +602,7 @@ public class Eth2TopicHandlerTest {
       asyncRunner.executeQueuedActions();
       assertThatSafeFuture(result).isCompletedWithValue(expected);
       assertThat(topicHandler.getInFlightMessageCount()).isZero();
+      assertThat(topicHandler.getOutstandingMessageCount()).isZero();
     }
   }
 

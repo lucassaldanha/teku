@@ -133,9 +133,9 @@ public abstract class AbstractGossipManager<T extends SszData> implements Gossip
           .createLabelledSuppliedGauge(
               TekuMetricCategory.NETWORK,
               "gossip_messages_in_flight",
-              "Number of gossip messages currently being processed for the topic",
+              "Number of gossip messages currently being processed for the topic, including validations that timed out but are still running",
               "topic")
-          .labels(topicHandler::getInFlightMessageCount, topicName.toString());
+          .labels(topicHandler::getOutstandingMessageCount, topicName.toString());
     }
     this.gossipEncoding = gossipEncoding;
     this.gossipFailureLogger = gossipFailureLogger;

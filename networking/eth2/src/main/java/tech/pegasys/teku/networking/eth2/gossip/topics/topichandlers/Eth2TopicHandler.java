@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes;
@@ -66,8 +67,11 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
   private final String topic;
   final TimeProvider timeProvider;
   private final int maxInFlightMessages;
+  private final int maxOutstandingMessages;
   private final Duration inFlightTimeout;
   private final AtomicInteger inFlightMessages = new AtomicInteger();
+  // released only when processing actually completes, even if it already timed out
+  private final AtomicInteger outstandingMessages = new AtomicInteger();
   private final Counter inFlightLimitDiscardedCounter;
 
   // every slot of mainnet config
@@ -105,8 +109,8 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
    *     further message is ignored before SSZ decoding (snappy decompression to compute the message
    *     id has already happened by then).
    * @param inFlightTimeout maximum time a message may hold an in-flight slot, after which it is
-   *     ignored and the slot released (the underlying validation may keep running). {@link
-   *     Duration#ZERO} means no timeout.
+   *     ignored and its in-flight slot released, but it still counts against an outstanding cap of
+   *     2x maxInFlightMessages until processing finishes. {@link Duration#ZERO} means no timeout.
    * @param inFlightLimitDiscardedCounter incremented for each message ignored because of the limit
    */
   public Eth2TopicHandler(
@@ -124,6 +128,8 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
       final Duration inFlightTimeout,
       final Counter inFlightLimitDiscardedCounter) {
     this.maxInFlightMessages = maxInFlightMessages;
+    this.maxOutstandingMessages =
+        maxInFlightMessages == Integer.MAX_VALUE ? Integer.MAX_VALUE : 2 * maxInFlightMessages;
     this.inFlightTimeout = inFlightTimeout;
     this.inFlightLimitDiscardedCounter = inFlightLimitDiscardedCounter;
     this.asyncRunner = asyncRunner;
@@ -167,20 +173,18 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
 
   @Override
   public SafeFuture<ValidationResult> handleMessage(final PreparedGossipMessage message) {
+    if (outstandingMessages.incrementAndGet() > maxOutstandingMessages) {
+      outstandingMessages.decrementAndGet();
+      return discard();
+    }
     if (inFlightMessages.incrementAndGet() > maxInFlightMessages) {
       inFlightMessages.decrementAndGet();
-      inFlightLimitDiscardedCounter.inc();
-      loggerThrottler.invoke(
-          timeProvider.getTimeInSeconds(),
-          (log) ->
-              log.warn(
-                  "Discarding gossip message for topic {} because too many messages are being processed",
-                  getTopic()));
-      return SafeFuture.completedFuture(ValidationResult.Ignore);
+      outstandingMessages.decrementAndGet();
+      return discard();
     }
     // SSZ decode on the async runner so large messages are not decoded on the libp2p thread and
     // are not held decoded while waiting in the queue
-    final SafeFuture<ValidationResult> validation =
+    final SafeFuture<ValidationResult> processing =
         asyncRunner.runAsync(
             () -> {
               final MessageT deserialized = deserialize(message);
@@ -198,12 +202,29 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
                             internalValidation);
                       });
             });
+    // attached to processing itself: a dependent completed early by the timeout would skip its
+    // callbacks
+    processing.always(outstandingMessages::decrementAndGet);
+    // orTimeout completes its receiver exceptionally, so give it a derived future
+    final SafeFuture<ValidationResult> response =
+        inFlightTimeout.isZero()
+            ? processing
+            : processing.thenApply(Function.identity()).orTimeout(asyncRunner, inFlightTimeout);
     // alwaysRun is attached once to the final future, so the slot is released exactly once
-    return (inFlightTimeout.isZero()
-            ? validation
-            : validation.orTimeout(asyncRunner, inFlightTimeout))
+    return response
         .exceptionally(error -> handleMessageProcessingError(message, error))
         .alwaysRun(inFlightMessages::decrementAndGet);
+  }
+
+  private SafeFuture<ValidationResult> discard() {
+    inFlightLimitDiscardedCounter.inc();
+    loggerThrottler.invoke(
+        timeProvider.getTimeInSeconds(),
+        (log) ->
+            log.warn(
+                "Discarding gossip message for topic {} because too many messages are being processed",
+                getTopic()));
+    return SafeFuture.completedFuture(ValidationResult.Ignore);
   }
 
   private void processMessage(
@@ -293,6 +314,10 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
 
   public int getInFlightMessageCount() {
     return inFlightMessages.get();
+  }
+
+  public int getOutstandingMessageCount() {
+    return outstandingMessages.get();
   }
 
   public OperationProcessor<MessageT> getProcessor() {
