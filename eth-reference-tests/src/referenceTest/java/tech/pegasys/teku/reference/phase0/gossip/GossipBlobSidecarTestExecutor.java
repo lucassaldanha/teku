@@ -86,8 +86,6 @@ public class GossipBlobSidecarTestExecutor implements TestExecutor {
                 .map(BlockEntryAndBlock::block)
                 .toList());
 
-    ctx.forkChoice.onTick(UInt64.valueOf(metaData.getCurrentTimeMs()), Optional.empty());
-
     final Map<Bytes32, BlockImportResult> invalidBlockRoots = new HashMap<>();
 
     for (final BlockEntryAndBlock blockEntryAndBlock : blocks) {
@@ -96,6 +94,9 @@ public class GossipBlobSidecarTestExecutor implements TestExecutor {
       if (block.getRoot().equals(ctx.anchorPoint.getRoot())) {
         continue;
       }
+      ctx.forkChoice.onTick(
+          spec.computeTimeMillisAtSlot(block.getSlot(), ctx.recentChainData.getGenesisTimeMillis()),
+          Optional.empty());
       final BlockImportResult importResult =
           safeJoin(
               ctx.forkChoice.onBlock(
@@ -156,8 +157,7 @@ public class GossipBlobSidecarTestExecutor implements TestExecutor {
         (blobSidecar, arrivalTimestamp) -> blobSidecarValidator.validate(blobSidecar);
 
     for (final GossipBlobSidecarMetaData.Message message : metaData.getMessages()) {
-      final UInt64 messageTimeMs =
-          UInt64.valueOf(metaData.getCurrentTimeMs()).plus(UInt64.valueOf(message.getOffsetMs()));
+      final UInt64 messageTimeMs = UInt64.valueOf(message.getCurrentTimeMs());
       ctx.forkChoice.onTick(messageTimeMs, Optional.empty());
 
       final BlobSidecar blobSidecar =
@@ -221,9 +221,6 @@ public class GossipBlobSidecarTestExecutor implements TestExecutor {
     @JsonProperty(value = "messages", required = true)
     private List<Message> messages;
 
-    @JsonProperty(value = "current_time_ms", required = true)
-    private long currentTimeMs;
-
     @JsonProperty(value = "bls_setting", required = false, defaultValue = "0")
     private int blsSetting;
 
@@ -236,10 +233,6 @@ public class GossipBlobSidecarTestExecutor implements TestExecutor {
 
     public List<Message> getMessages() {
       return messages;
-    }
-
-    public long getCurrentTimeMs() {
-      return currentTimeMs;
     }
 
     public BlsSetting getBlsSetting() {
@@ -274,8 +267,8 @@ public class GossipBlobSidecarTestExecutor implements TestExecutor {
       @JsonProperty(value = "subnet_id", required = false)
       private Integer subnetId;
 
-      @JsonProperty(value = "offset_ms", required = true)
-      private long offsetMs;
+      @JsonProperty(value = "current_time_ms")
+      private long currentTimeMs;
 
       @JsonProperty(value = "message", required = true)
       private String message;
@@ -290,8 +283,8 @@ public class GossipBlobSidecarTestExecutor implements TestExecutor {
         return subnetId;
       }
 
-      public long getOffsetMs() {
-        return offsetMs;
+      public long getCurrentTimeMs() {
+        return currentTimeMs;
       }
 
       public String getMessage() {
