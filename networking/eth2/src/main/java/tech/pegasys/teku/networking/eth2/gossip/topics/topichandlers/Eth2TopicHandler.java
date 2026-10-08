@@ -116,9 +116,7 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
 
   @Override
   public SafeFuture<ValidationResult> handleMessage(final PreparedGossipMessage message) {
-    // SSZ decode on the async runner: the libp2p caller is the single gossipsub event thread, and
-    // decoding there blocks all gossip for all peers. Decoding late also means messages waiting in
-    // the queue are held compressed rather than as decoded SSZ trees.
+    // SSZ decode on the async runner to avoid blocking the single gossipsub event thread
     return asyncRunner
         .runAsync(
             () -> {
