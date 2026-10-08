@@ -116,24 +116,26 @@ public class Eth2TopicHandler<MessageT extends SszData> implements TopicHandler 
 
   @Override
   public SafeFuture<ValidationResult> handleMessage(final PreparedGossipMessage message) {
-    return SafeFuture.of(() -> deserialize(message))
-        .thenCompose(
-            deserialized -> {
+    // SSZ decode on the async runner: the libp2p caller is the single gossipsub event thread, and
+    // decoding there blocks all gossip for all peers. Decoding late also means messages waiting in
+    // the queue are held compressed rather than as decoded SSZ trees.
+    return asyncRunner
+        .runAsync(
+            () -> {
+              final MessageT deserialized = deserialize(message);
               if (!forkValidator.isValid(deserialized)) {
                 return SafeFuture.completedFuture(
                     GossipSubValidationUtil.fromInternalValidationResult(
                         InternalValidationResult.reject("Incorrect spec milestone")));
               }
-              return asyncRunner.runAsync(
-                  () ->
-                      processor
-                          .process(deserialized, message.getArrivalTimestamp())
-                          .thenApply(
-                              internalValidation -> {
-                                processMessage(internalValidation, message);
-                                return GossipSubValidationUtil.fromInternalValidationResult(
-                                    internalValidation);
-                              }));
+              return processor
+                  .process(deserialized, message.getArrivalTimestamp())
+                  .thenApply(
+                      internalValidation -> {
+                        processMessage(internalValidation, message);
+                        return GossipSubValidationUtil.fromInternalValidationResult(
+                            internalValidation);
+                      });
             })
         .exceptionally(error -> handleMessageProcessingError(message, error));
   }
