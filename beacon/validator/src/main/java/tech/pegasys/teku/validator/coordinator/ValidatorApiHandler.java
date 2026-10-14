@@ -747,6 +747,7 @@ public class ValidatorApiHandler implements ValidatorApiChannel, SlotEventsChann
       final IntSet syncCommitteeIndices = subscription.syncCommitteeIndices();
       performanceTracker.saveExpectedSyncCommitteeParticipant(
           subscription.validatorIndex(), syncCommitteeIndices, untilEpoch.decrement());
+      syncCommitteeSubscriptionManager.recordDuty(subscription.validatorIndex(), unsubscribeSlot);
       syncCommitteeUtil
           .getSyncSubcommittees(syncCommitteeIndices)
           .forEach(index -> syncCommitteeSubscriptionManager.subscribe(index, unsubscribeSlot));

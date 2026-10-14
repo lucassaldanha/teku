@@ -950,6 +950,9 @@ class ValidatorApiHandlerTest {
 
     verify(syncCommitteeSubscriptionManager).subscribe(0, unsubscribeSlotSubscription2);
     verify(syncCommitteeSubscriptionManager).subscribe(1, unsubscribeSlotSubscription2);
+
+    verify(syncCommitteeSubscriptionManager).recordDuty(1, unsubscribeSlotSubscription1);
+    verify(syncCommitteeSubscriptionManager).recordDuty(1, unsubscribeSlotSubscription2);
     verifyNoMoreInteractions(syncCommitteeSubscriptionManager);
   }
 
