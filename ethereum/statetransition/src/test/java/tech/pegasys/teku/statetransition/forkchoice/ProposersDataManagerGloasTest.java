@@ -39,6 +39,7 @@ import tech.pegasys.teku.spec.TestSpecInvocationContextProvider.SpecContext;
 import tech.pegasys.teku.spec.datastructures.blocks.SlotAndBlockRoot;
 import tech.pegasys.teku.spec.datastructures.epbs.versions.gloas.ExecutionPayloadBid;
 import tech.pegasys.teku.spec.datastructures.epbs.versions.gloas.SignedBlindedExecutionPayloadEnvelope;
+import tech.pegasys.teku.spec.datastructures.epbs.versions.gloas.SignedProposerPreferences;
 import tech.pegasys.teku.spec.datastructures.execution.ExecutionRequests;
 import tech.pegasys.teku.spec.datastructures.execution.versions.capella.Withdrawal;
 import tech.pegasys.teku.spec.datastructures.forkchoice.ForkChoiceNode;
@@ -52,6 +53,7 @@ import tech.pegasys.teku.spec.executionlayer.ForkChoiceState;
 import tech.pegasys.teku.spec.executionlayer.PayloadBuildingAttributes;
 import tech.pegasys.teku.spec.schemas.SchemaDefinitionsGloas;
 import tech.pegasys.teku.spec.util.DataStructureUtil;
+import tech.pegasys.teku.statetransition.execution.ProposerPreferencesManager;
 import tech.pegasys.teku.storage.client.RecentChainData;
 
 @TestSpecContext(milestone = GLOAS)
@@ -62,6 +64,7 @@ class ProposersDataManagerGloasTest {
   private DataStructureUtil data;
   private InlineEventThread eventThread;
   private ProposersDataManager manager;
+  private ProposerPreferencesManager proposerPreferencesManager;
   private Eth1Address defaultFeeRecipient;
 
   @BeforeEach
@@ -71,6 +74,9 @@ class ProposersDataManagerGloasTest {
     recentChainData = mock(RecentChainData.class);
     eventThread = new InlineEventThread();
     defaultFeeRecipient = data.randomEth1Address();
+    proposerPreferencesManager = mock(ProposerPreferencesManager.class);
+    when(proposerPreferencesManager.getProposerPreferences(any(), any()))
+        .thenReturn(Optional.empty());
     manager =
         new ProposersDataManager(
             eventThread,
@@ -79,7 +85,8 @@ class ProposersDataManagerGloasTest {
             ExecutionLayerChannel.NOOP,
             recentChainData,
             Optional.of(defaultFeeRecipient),
-            false);
+            false,
+            proposerPreferencesManager);
     when(recentChainData.isJustifiedCheckpointFullyValidated()).thenReturn(true);
   }
 
@@ -244,6 +251,86 @@ class ProposersDataManagerGloasTest {
     assertThatSafeFuture(calculate(blockSlot, forkChoiceUpdateData))
         .isCompletedExceptionallyWith(IllegalStateException.class)
         .hasMessageContaining("Execution Requests for parent root");
+  }
+
+  @TestTemplate
+  void updatePreparedProposers_shouldUseFeeRecipientFromAcceptedProposerPreferences() {
+    final UInt64 blockSlot = UInt64.valueOf(16);
+    final Bytes32 dependentRoot = data.randomBytes32();
+    final BeaconState state = data.randomBeaconState(blockSlot);
+    final UInt64 proposerIndex = UInt64.valueOf(spec.getBeaconProposerIndex(state, blockSlot));
+    final Eth1Address feeRecipient = data.randomEth1Address();
+    assertThat(feeRecipient).isNotEqualTo(defaultFeeRecipient);
+    final SignedProposerPreferences preferences =
+        signedProposerPreferences(blockSlot, dependentRoot, proposerIndex, feeRecipient);
+    when(proposerPreferencesManager.getProposerPreferences(blockSlot, dependentRoot))
+        .thenReturn(Optional.of(preferences.getMessage()));
+
+    manager.updatePreparedProposersFromProposerPreferences(List.of(preferences), blockSlot);
+
+    assertThat(feeRecipientFor(state, blockSlot)).isEqualTo(feeRecipient);
+  }
+
+  @TestTemplate
+  void updatePreparedProposers_shouldIgnoreProposerPreferencesWhichWereNotAccepted() {
+    final UInt64 blockSlot = UInt64.valueOf(16);
+    final Bytes32 dependentRoot = data.randomBytes32();
+    final BeaconState state = data.randomBeaconState(blockSlot);
+    final UInt64 proposerIndex = UInt64.valueOf(spec.getBeaconProposerIndex(state, blockSlot));
+    final SignedProposerPreferences preferences =
+        signedProposerPreferences(
+            blockSlot, dependentRoot, proposerIndex, data.randomEth1Address());
+
+    manager.updatePreparedProposersFromProposerPreferences(List.of(preferences), blockSlot);
+
+    assertThat(feeRecipientFor(state, blockSlot)).isEqualTo(defaultFeeRecipient);
+  }
+
+  @TestTemplate
+  void updatePreparedProposers_shouldIgnoreProposerPreferencesWhichDifferFromTheAcceptedOnes() {
+    final UInt64 blockSlot = UInt64.valueOf(16);
+    final Bytes32 dependentRoot = data.randomBytes32();
+    final BeaconState state = data.randomBeaconState(blockSlot);
+    final UInt64 proposerIndex = UInt64.valueOf(spec.getBeaconProposerIndex(state, blockSlot));
+    final SignedProposerPreferences accepted =
+        signedProposerPreferences(
+            blockSlot, dependentRoot, proposerIndex, data.randomEth1Address());
+    // same proposal slot and dependent root, so the submission is only ignored as already seen
+    final SignedProposerPreferences submitted =
+        signedProposerPreferences(
+            blockSlot, dependentRoot, proposerIndex, data.randomEth1Address());
+    when(proposerPreferencesManager.getProposerPreferences(blockSlot, dependentRoot))
+        .thenReturn(Optional.of(accepted.getMessage()));
+
+    manager.updatePreparedProposersFromProposerPreferences(List.of(submitted), blockSlot);
+
+    assertThat(feeRecipientFor(state, blockSlot)).isEqualTo(defaultFeeRecipient);
+  }
+
+  private Eth1Address feeRecipientFor(final BeaconState state, final UInt64 blockSlot) {
+    final Bytes32 parentRoot = data.randomBytes32();
+    final ForkChoiceUpdateData forkChoiceUpdateData =
+        forkChoiceUpdateData(ForkChoiceNode.createBase(parentRoot), blockSlot);
+    when(recentChainData.retrieveBlockState(new SlotAndBlockRoot(blockSlot, parentRoot)))
+        .thenReturn(SafeFuture.completedFuture(Optional.of(state)));
+    return safeJoin(calculate(blockSlot, forkChoiceUpdateData)).orElseThrow().feeRecipient();
+  }
+
+  private SignedProposerPreferences signedProposerPreferences(
+      final UInt64 proposalSlot,
+      final Bytes32 dependentRoot,
+      final UInt64 validatorIndex,
+      final Eth1Address feeRecipient) {
+    final SchemaDefinitionsGloas schemaDefinitions =
+        SchemaDefinitionsGloas.required(spec.atSlot(proposalSlot).getSchemaDefinitions());
+    return schemaDefinitions
+        .getSignedProposerPreferencesSchema()
+        .create(
+            schemaDefinitions
+                .getProposerPreferencesSchema()
+                .create(
+                    dependentRoot, proposalSlot, validatorIndex, feeRecipient, data.randomUInt64()),
+            data.randomSignature());
   }
 
   private SafeFuture<Optional<PayloadBuildingAttributes>> calculate(

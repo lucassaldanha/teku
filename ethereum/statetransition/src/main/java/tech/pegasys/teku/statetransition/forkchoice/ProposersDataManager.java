@@ -163,17 +163,39 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
     updatePreparedProposerCache(preparedProposers, currentSlot);
   }
 
-  // post-Gloas
+  /**
+   * Post-Gloas. Caches the fee recipient only for preferences which are identical to ones that
+   * passed validation, so a submission we rejected can never override a proposer's fee recipient.
+   */
   public void updatePreparedProposersFromProposerPreferences(
       final Collection<SignedProposerPreferences> proposerPreferences, final UInt64 currentSlot) {
     final Stream<ValidatorIndexAndFeeRecipient> preparedProposers =
         proposerPreferences.stream()
+            .map(SignedProposerPreferences::getMessage)
+            .filter(this::isAcceptedProposerPreferences)
             .map(
-                proposerPreference ->
+                preferences ->
                     new ValidatorIndexAndFeeRecipient(
-                        proposerPreference.getMessage().getValidatorIndex(),
-                        proposerPreference.getMessage().getFeeRecipient()));
+                        preferences.getValidatorIndex(), preferences.getFeeRecipient()));
     updatePreparedProposerCache(preparedProposers, currentSlot);
+  }
+
+  /**
+   * Post-Gloas. Called when preferences we submitted are accepted, which also covers preferences
+   * accepted on a retry after they were saved for future processing.
+   */
+  public void updatePreparedProposerFromAcceptedProposerPreferences(
+      final SignedProposerPreferences signedProposerPreferences) {
+    updatePreparedProposersFromProposerPreferences(
+        List.of(signedProposerPreferences), recentChainData.getCurrentSlot().orElse(UInt64.ZERO));
+  }
+
+  private boolean isAcceptedProposerPreferences(final ProposerPreferences proposerPreferences) {
+    return proposerPreferencesManager
+        .getProposerPreferences(
+            proposerPreferences.getProposalSlot(), proposerPreferences.getDependentRoot())
+        .map(accepted -> accepted.hashTreeRoot().equals(proposerPreferences.hashTreeRoot()))
+        .orElse(false);
   }
 
   private record ValidatorIndexAndFeeRecipient(UInt64 validatorIndex, Eth1Address feeRecipient) {}
