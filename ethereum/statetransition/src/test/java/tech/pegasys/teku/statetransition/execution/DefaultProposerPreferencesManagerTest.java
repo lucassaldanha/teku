@@ -24,6 +24,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static tech.pegasys.teku.infrastructure.async.SafeFutureAssert.safeJoin;
 import static tech.pegasys.teku.statetransition.validation.InternalValidationResult.ACCEPT;
+import static tech.pegasys.teku.statetransition.validation.InternalValidationResult.IGNORE;
 import static tech.pegasys.teku.statetransition.validation.InternalValidationResult.SAVE_FOR_FUTURE;
 
 import org.apache.tuweni.bytes.Bytes32;
@@ -380,6 +381,49 @@ public class DefaultProposerPreferencesManagerTest {
   }
 
   @TestTemplate
+  void shouldReportLocalAcceptanceWhenRemoteCopyWasQueuedFirst() {
+    final SignedBeaconBlock dependentBlock = dataStructureUtil.randomSignedBeaconBlock(9);
+    final UInt64 proposalSlot = UInt64.valueOf(10);
+    final SignedProposerPreferences preferences =
+        createSignedProposerPreferences(proposalSlot, dependentBlock.getRoot());
+    manager.onSlot(proposalSlot.minus(1));
+    when(gossipValidator.validate(preferences))
+        .thenReturn(SafeFuture.completedFuture(SAVE_FOR_FUTURE))
+        .thenReturn(SafeFuture.completedFuture(SAVE_FOR_FUTURE))
+        .thenReturn(SafeFuture.completedFuture(ACCEPT));
+
+    safeJoin(manager.addRemote(preferences));
+    safeJoin(manager.addLocal(preferences));
+    manager.onBlockImported(dependentBlock, false);
+
+    verify(subscriber).onOperationAdded(preferences, ACCEPT, false);
+    verify(subscriber, never()).onOperationAdded(preferences, ACCEPT, true);
+  }
+
+  @TestTemplate
+  void shouldReportLocalAcceptanceWhenRemoteCopyIsAcceptedDuringRetry() {
+    final SignedBeaconBlock dependentBlock = dataStructureUtil.randomSignedBeaconBlock(9);
+    final UInt64 proposalSlot = UInt64.valueOf(10);
+    final SignedProposerPreferences preferences =
+        createSignedProposerPreferences(proposalSlot, dependentBlock.getRoot());
+    final SafeFuture<InternalValidationResult> retryValidation = new SafeFuture<>();
+    manager.onSlot(proposalSlot.minus(1));
+    when(gossipValidator.validate(preferences))
+        .thenReturn(SafeFuture.completedFuture(SAVE_FOR_FUTURE))
+        .thenReturn(retryValidation)
+        .thenReturn(SafeFuture.completedFuture(ACCEPT));
+
+    safeJoin(manager.addLocal(preferences));
+    manager.onBlockImported(dependentBlock, false);
+    // an identical copy received over gossip is accepted while our retry is still being validated
+    safeJoin(manager.addRemote(preferences));
+    retryValidation.complete(IGNORE);
+
+    verify(subscriber).onOperationAdded(preferences, ACCEPT, false);
+    verify(subscriber, never()).onOperationAdded(preferences, ACCEPT, true);
+  }
+
+  @TestTemplate
   void shouldBoundPendingPreferences() {
     final UInt64 proposalSlot = UInt64.valueOf(10);
     final PendingPool<PendingProposerPreferences> boundedPendingPool =
@@ -400,7 +444,7 @@ public class DefaultProposerPreferencesManagerTest {
   }
 
   @TestTemplate
-  void shouldNotRetainLocalOriginAfterPendingPreferenceIsEvicted() {
+  void shouldRetainLocalOriginAfterPendingPreferenceIsEvicted() {
     final UInt64 proposalSlot = UInt64.valueOf(10);
     final PendingPool<PendingProposerPreferences> boundedPendingPool =
         new PoolFactory(new StubMetricsSystem()).createPendingPoolForProposerPreferences(spec, 1);
@@ -424,7 +468,7 @@ public class DefaultProposerPreferencesManagerTest {
     safeJoin(boundedManager.addRemote(firstPreferences));
     boundedManager.onSlot(proposalSlot);
 
-    verify(subscriber).onOperationAdded(firstPreferences, ACCEPT, true);
+    verify(subscriber).onOperationAdded(firstPreferences, ACCEPT, false);
   }
 
   private SignedProposerPreferences createSignedProposerPreferences(

@@ -170,7 +170,7 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
                 proposer ->
                     new ValidatorIndexAndFeeRecipient(
                         proposer.validatorIndex(), proposer.feeRecipient()));
-    updatePreparedProposerCache(preparedProposers, currentSlot, false);
+    updatePreparedProposerCache(preparedProposers, currentSlot);
   }
 
   /**
@@ -187,7 +187,7 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
                 preferences ->
                     new ValidatorIndexAndFeeRecipient(
                         preferences.getValidatorIndex(), preferences.getFeeRecipient()));
-    updatePreparedProposerCache(preparedProposers, currentSlot, true);
+    updatePreparedProposerCache(preparedProposers, currentSlot);
   }
 
   /**
@@ -244,9 +244,7 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
   }
 
   private void updatePreparedProposerCache(
-      final Stream<ValidatorIndexAndFeeRecipient> preparedProposers,
-      final UInt64 currentSlot,
-      final boolean fromProposerPreferences) {
+      final Stream<ValidatorIndexAndFeeRecipient> preparedProposers, final UInt64 currentSlot) {
     final UInt64 expirySlot =
         currentSlot.plus(
             spec.getSlotsPerEpoch(currentSlot) * PROPOSER_PREPARATION_EXPIRATION_EPOCHS);
@@ -254,8 +252,7 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
         proposer ->
             preparedProposerInfoByValidatorIndex.put(
                 proposer.validatorIndex,
-                new PreparedProposerInfo(
-                    expirySlot, proposer.feeRecipient, fromProposerPreferences)));
+                new PreparedProposerInfo(expirySlot, proposer.feeRecipient)));
   }
 
   private void updateValidatorRegistrationCache(
@@ -333,8 +330,18 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
     final UInt64 proposerIndex = UInt64.valueOf(spec.getBeaconProposerIndex(state, blockSlot));
     final PreparedProposerInfo proposerInfo =
         preparedProposerInfoByValidatorIndex.get(proposerIndex);
+    final Optional<Bytes32> dependentRoot =
+        getShufflingDependentRoot(currentHeadBlock.blockRoot(), blockSlot);
+    final Optional<ProposerPreferences> acceptedPreferences =
+        getAcceptedProposerPreferences(blockSlot, proposerIndex, dependentRoot);
 
-    if (proposerInfo == null && !(mandatory || forkChoiceUpdatedAlwaysSendPayloadAttribute)) {
+    // from Gloas on, attributes prepared ahead of time are reused by block production, so they are
+    // only prepared for our proposer once the signed preferences for this proposal are accepted
+    final boolean isOurProposer =
+        proposerInfo != null
+            && (acceptedPreferences.isPresent()
+                || !spec.areProposerAndBuilderPreferencesRequiredAtEpoch(epoch));
+    if (!isOurProposer && !(mandatory || forkChoiceUpdatedAlwaysSendPayloadAttribute)) {
       // Proposer is not one of our validators. No need to propose a block.
       return SafeFuture.completedFuture(Optional.empty());
     }
@@ -344,8 +351,6 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
     final Optional<SignedValidatorRegistration> validatorRegistration =
         Optional.ofNullable(validatorRegistrationInfoByValidatorIndex.get(proposerIndex))
             .map(RegisteredValidatorInfo::getSignedValidatorRegistration);
-    final Optional<Bytes32> dependentRoot =
-        getShufflingDependentRoot(currentHeadBlock.blockRoot(), blockSlot);
 
     final Eth1Address feeRecipient =
         getFeeRecipient(proposerInfo, blockSlot, proposerIndex, dependentRoot);
@@ -417,16 +422,21 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
       final Optional<Bytes32> dependentRoot,
       final Optional<SignedValidatorRegistration> validatorRegistration) {
     // post-Gloas, we use signed proposer preferences
-    return dependentRoot
-        .flatMap(root -> proposerPreferencesManager.getProposerPreferences(blockSlot, root))
-        .filter(
-            proposerPreferences -> proposerPreferences.getValidatorIndex().equals(proposerIndex))
+    return getAcceptedProposerPreferences(blockSlot, proposerIndex, dependentRoot)
         .map(ProposerPreferences::getTargetGasLimit)
         // pre-Gloas, we use validator registrations
         .or(
             () ->
                 validatorRegistration.map(registration -> registration.getMessage().getGasLimit()))
         .orElse(UInt64.ZERO);
+  }
+
+  private Optional<ProposerPreferences> getAcceptedProposerPreferences(
+      final UInt64 blockSlot, final UInt64 proposerIndex, final Optional<Bytes32> dependentRoot) {
+    return dependentRoot
+        .flatMap(root -> proposerPreferencesManager.getProposerPreferences(blockSlot, root))
+        .filter(
+            proposerPreferences -> proposerPreferences.getValidatorIndex().equals(proposerIndex));
   }
 
   private Optional<Bytes32> getShufflingDependentRoot(
@@ -450,21 +460,16 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
     // post-Gloas, we use signed proposer preferences. They are tied to the proposal slot and the
     // dependent root, so they cannot be overridden by anything cached for the validator index.
     final Optional<Eth1Address> acceptedFeeRecipient =
-        dependentRoot
-            .flatMap(root -> proposerPreferencesManager.getProposerPreferences(blockSlot, root))
-            .filter(
-                proposerPreferences ->
-                    proposerPreferences.getValidatorIndex().equals(proposerIndex))
+        getAcceptedProposerPreferences(blockSlot, proposerIndex, dependentRoot)
             .map(ProposerPreferences::getFeeRecipient);
     if (acceptedFeeRecipient.isPresent()) {
       return acceptedFeeRecipient.get();
     }
-    // a Gloas proposal never falls back to a fee recipient which did not come from signed
-    // preferences, so prepare_beacon_proposer entries cached before the fork cannot be used
+    // a Gloas proposal never falls back to the cache: it is keyed by validator index only, so its
+    // fee recipient was signed for another slot or dependent root at best, or never signed at all
     if (preparedProposerInfo != null
-        && (preparedProposerInfo.isFromProposerPreferences()
-            || !spec.areProposerAndBuilderPreferencesRequiredAtEpoch(
-                spec.computeEpochAtSlot(blockSlot)))) {
+        && !spec.areProposerAndBuilderPreferencesRequiredAtEpoch(
+            spec.computeEpochAtSlot(blockSlot))) {
       return preparedProposerInfo.getFeeRecipient();
     }
     if (proposerDefaultFeeRecipient.isPresent()) {

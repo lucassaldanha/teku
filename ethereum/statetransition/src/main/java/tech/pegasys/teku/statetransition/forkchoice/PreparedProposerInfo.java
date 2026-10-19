@@ -18,27 +18,13 @@ import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 
 public class PreparedProposerInfo extends ExpiringInfo {
   private final Eth1Address feeRecipient;
-  private final boolean fromProposerPreferences;
 
   public PreparedProposerInfo(final UInt64 expirySlot, final Eth1Address feeRecipient) {
-    this(expirySlot, feeRecipient, false);
-  }
-
-  public PreparedProposerInfo(
-      final UInt64 expirySlot,
-      final Eth1Address feeRecipient,
-      final boolean fromProposerPreferences) {
     super(expirySlot);
     this.feeRecipient = feeRecipient;
-    this.fromProposerPreferences = fromProposerPreferences;
   }
 
   public Eth1Address getFeeRecipient() {
     return feeRecipient;
-  }
-
-  /** Whether the fee recipient came from signed proposer preferences rather than unsigned input. */
-  public boolean isFromProposerPreferences() {
-    return fromProposerPreferences;
   }
 }

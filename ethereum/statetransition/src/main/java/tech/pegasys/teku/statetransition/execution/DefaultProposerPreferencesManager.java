@@ -17,6 +17,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -45,6 +46,10 @@ public class DefaultProposerPreferencesManager
   private final PendingPool<PendingProposerPreferences> pendingProposerPreferences;
   private final ConcurrentNavigableMap<UInt64, Map<Bytes32, ProposerPreferences>>
       acceptedProposerPreferences = new ConcurrentSkipListMap<>();
+  // local submissions still being validated or queued, so that their acceptance is reported as
+  // local even when an identical copy received over gossip gets accepted first
+  private final Set<SignedProposerPreferences> pendingLocalSubmissions =
+      ConcurrentHashMap.newKeySet();
   private final Subscribers<OperationAddedSubscriber<SignedProposerPreferences>> subscribers =
       Subscribers.create(true);
 
@@ -58,6 +63,7 @@ public class DefaultProposerPreferencesManager
   @Override
   public SafeFuture<InternalValidationResult> addLocal(
       final SignedProposerPreferences signedProposerPreferences) {
+    pendingLocalSubmissions.add(signedProposerPreferences);
     return validateAndAdd(signedProposerPreferences, false);
   }
 
@@ -90,6 +96,8 @@ public class DefaultProposerPreferencesManager
   @Override
   public void onSlot(final UInt64 slot) {
     acceptedProposerPreferences.headMap(slot, false).clear();
+    pendingLocalSubmissions.removeIf(
+        preferences -> preferences.getMessage().getProposalSlot().isLessThan(slot));
     pendingProposerPreferences.onSlot(slot);
     pendingProposerPreferences.removeItemsMatching(
         pendingPreferences ->
@@ -128,9 +136,8 @@ public class DefaultProposerPreferencesManager
       final InternalValidationResult result) {
     switch (result.code()) {
       case ACCEPT -> {
-        // the identical preferences may have been submitted to us locally and queued while a copy
-        // received over gossip won validation, and the local submission still has to be honoured
-        final boolean local = !fromNetwork || wasSubmittedLocally(signedProposerPreferences);
+        final boolean local =
+            pendingLocalSubmissions.remove(signedProposerPreferences) || !fromNetwork;
         removePendingPreferences(signedProposerPreferences);
         final ProposerPreferences proposerPreferences = signedProposerPreferences.getMessage();
         acceptedProposerPreferences
@@ -142,7 +149,12 @@ public class DefaultProposerPreferencesManager
       case SAVE_FOR_FUTURE ->
           pendingProposerPreferences.add(
               new PendingProposerPreferences(signedProposerPreferences, fromNetwork));
-      case REJECT, IGNORE -> removePendingPreferences(signedProposerPreferences);
+      case REJECT, IGNORE -> {
+        if (!fromNetwork) {
+          pendingLocalSubmissions.remove(signedProposerPreferences);
+        }
+        removePendingPreferences(signedProposerPreferences);
+      }
     }
   }
 
@@ -154,13 +166,6 @@ public class DefaultProposerPreferencesManager
                     pendingPreferences.signedProposerPreferences(),
                     pendingPreferences.fromNetwork())
                 .finishError(LOG));
-  }
-
-  private boolean wasSubmittedLocally(final SignedProposerPreferences signedProposerPreferences) {
-    return pendingProposerPreferences
-        .get(signedProposerPreferences.hashTreeRoot())
-        .map(pendingPreferences -> !pendingPreferences.fromNetwork())
-        .orElse(false);
   }
 
   private void removePendingPreferences(final SignedProposerPreferences signedProposerPreferences) {

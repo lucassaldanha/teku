@@ -310,18 +310,26 @@ public class ProposerDataManagerTest {
   }
 
   @Test
-  void shouldUseProposerPreferencesFeeRecipientFromCacheForGloasProposal() {
+  void shouldIgnoreCachedFeeRecipientForGloasProposalWithoutMatchingProposerPreferences() {
     final UInt64 blockSlot = UInt64.valueOf(12);
+    final UInt64 proposerIndex = UInt64.ONE;
     final Eth1Address feeRecipient = dataStructureUtil.randomEth1Address();
+    final ProposerPreferencesManager proposerPreferencesManager =
+        mock(ProposerPreferencesManager.class);
+    final ProposersDataManager manager = createProposersDataManager(proposerPreferencesManager);
     when(specMock.areProposerAndBuilderPreferencesRequiredAtEpoch(any())).thenReturn(true);
+    // the cached fee recipient came from preferences accepted for another dependent root
+    when(proposerPreferencesManager.getProposerPreferences(
+            blockSlot, dataStructureUtil.randomBytes32()))
+        .thenReturn(Optional.of(proposerPreferencesWithFeeRecipient(proposerIndex, feeRecipient)));
 
     assertThat(
-            proposersDataManager.getFeeRecipient(
-                new PreparedProposerInfo(UInt64.MAX_VALUE, feeRecipient, true),
+            manager.getFeeRecipient(
+                preparedProposerInfo(feeRecipient),
                 blockSlot,
-                UInt64.ONE,
-                Optional.empty()))
-        .isEqualTo(feeRecipient);
+                proposerIndex,
+                Optional.of(dataStructureUtil.randomBytes32())))
+        .isEqualTo(defaultFeeRecipient.orElseThrow());
   }
 
   private PreparedProposerInfo preparedProposerInfo(final Eth1Address feeRecipient) {
