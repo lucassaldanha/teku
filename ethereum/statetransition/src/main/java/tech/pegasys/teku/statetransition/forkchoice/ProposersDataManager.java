@@ -170,7 +170,7 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
                 proposer ->
                     new ValidatorIndexAndFeeRecipient(
                         proposer.validatorIndex(), proposer.feeRecipient()));
-    updatePreparedProposerCache(preparedProposers, currentSlot);
+    updatePreparedProposerCache(preparedProposers, currentSlot, false);
   }
 
   /**
@@ -187,7 +187,7 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
                 preferences ->
                     new ValidatorIndexAndFeeRecipient(
                         preferences.getValidatorIndex(), preferences.getFeeRecipient()));
-    updatePreparedProposerCache(preparedProposers, currentSlot);
+    updatePreparedProposerCache(preparedProposers, currentSlot, true);
   }
 
   /**
@@ -244,7 +244,9 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
   }
 
   private void updatePreparedProposerCache(
-      final Stream<ValidatorIndexAndFeeRecipient> preparedProposers, final UInt64 currentSlot) {
+      final Stream<ValidatorIndexAndFeeRecipient> preparedProposers,
+      final UInt64 currentSlot,
+      final boolean fromProposerPreferences) {
     final UInt64 expirySlot =
         currentSlot.plus(
             spec.getSlotsPerEpoch(currentSlot) * PROPOSER_PREPARATION_EXPIRATION_EPOCHS);
@@ -252,7 +254,8 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
         proposer ->
             preparedProposerInfoByValidatorIndex.put(
                 proposer.validatorIndex,
-                new PreparedProposerInfo(expirySlot, proposer.feeRecipient)));
+                new PreparedProposerInfo(
+                    expirySlot, proposer.feeRecipient, fromProposerPreferences)));
   }
 
   private void updateValidatorRegistrationCache(
@@ -456,7 +459,12 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
     if (acceptedFeeRecipient.isPresent()) {
       return acceptedFeeRecipient.get();
     }
-    if (preparedProposerInfo != null) {
+    // a Gloas proposal never falls back to a fee recipient which did not come from signed
+    // preferences, so prepare_beacon_proposer entries cached before the fork cannot be used
+    if (preparedProposerInfo != null
+        && (preparedProposerInfo.isFromProposerPreferences()
+            || !spec.areProposerAndBuilderPreferencesRequiredAtEpoch(
+                spec.computeEpochAtSlot(blockSlot)))) {
       return preparedProposerInfo.getFeeRecipient();
     }
     if (proposerDefaultFeeRecipient.isPresent()) {

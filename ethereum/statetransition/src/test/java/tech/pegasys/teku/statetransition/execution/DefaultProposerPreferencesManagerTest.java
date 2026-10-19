@@ -362,6 +362,24 @@ public class DefaultProposerPreferencesManagerTest {
   }
 
   @TestTemplate
+  void shouldTreatRemoteAcceptanceOfLocallySubmittedPreferencesAsLocal() {
+    final SignedBeaconBlock dependentBlock = dataStructureUtil.randomSignedBeaconBlock(9);
+    final UInt64 proposalSlot = UInt64.valueOf(10);
+    final SignedProposerPreferences preferences =
+        createSignedProposerPreferences(proposalSlot, dependentBlock.getRoot());
+    manager.onSlot(proposalSlot.minus(1));
+    when(gossipValidator.validate(preferences))
+        .thenReturn(SafeFuture.completedFuture(SAVE_FOR_FUTURE))
+        .thenReturn(SafeFuture.completedFuture(ACCEPT));
+
+    safeJoin(manager.addLocal(preferences));
+    // an identical copy received over gossip wins validation once the dependent block arrives
+    safeJoin(manager.addRemote(preferences));
+
+    verify(subscriber).onOperationAdded(preferences, ACCEPT, false);
+  }
+
+  @TestTemplate
   void shouldBoundPendingPreferences() {
     final UInt64 proposalSlot = UInt64.valueOf(10);
     final PendingPool<PendingProposerPreferences> boundedPendingPool =

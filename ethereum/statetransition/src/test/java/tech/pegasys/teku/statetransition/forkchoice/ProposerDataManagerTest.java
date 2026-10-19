@@ -295,6 +295,35 @@ public class ProposerDataManagerTest {
         .isEqualTo(defaultFeeRecipient.orElseThrow());
   }
 
+  @Test
+  void shouldIgnorePrepareBeaconProposerFeeRecipientForGloasProposal() {
+    final UInt64 blockSlot = UInt64.valueOf(12);
+    when(specMock.areProposerAndBuilderPreferencesRequiredAtEpoch(any())).thenReturn(true);
+
+    assertThat(
+            proposersDataManager.getFeeRecipient(
+                preparedProposerInfo(dataStructureUtil.randomEth1Address()),
+                blockSlot,
+                UInt64.ONE,
+                Optional.empty()))
+        .isEqualTo(defaultFeeRecipient.orElseThrow());
+  }
+
+  @Test
+  void shouldUseProposerPreferencesFeeRecipientFromCacheForGloasProposal() {
+    final UInt64 blockSlot = UInt64.valueOf(12);
+    final Eth1Address feeRecipient = dataStructureUtil.randomEth1Address();
+    when(specMock.areProposerAndBuilderPreferencesRequiredAtEpoch(any())).thenReturn(true);
+
+    assertThat(
+            proposersDataManager.getFeeRecipient(
+                new PreparedProposerInfo(UInt64.MAX_VALUE, feeRecipient, true),
+                blockSlot,
+                UInt64.ONE,
+                Optional.empty()))
+        .isEqualTo(feeRecipient);
+  }
+
   private PreparedProposerInfo preparedProposerInfo(final Eth1Address feeRecipient) {
     return new PreparedProposerInfo(UInt64.MAX_VALUE, feeRecipient);
   }
