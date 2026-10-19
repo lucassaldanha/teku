@@ -307,6 +307,20 @@ class ProposersDataManagerGloasTest {
     assertThat(feeRecipientFor(state, blockSlot)).isEqualTo(defaultFeeRecipient);
   }
 
+  @TestTemplate
+  void updatePreparedProposers_shouldIgnorePrepareBeaconProposerAfterGloas() {
+    final UInt64 blockSlot = UInt64.valueOf(16);
+    final BeaconState state = data.randomBeaconState(blockSlot);
+    final UInt64 proposerIndex = UInt64.valueOf(spec.getBeaconProposerIndex(state, blockSlot));
+    final Eth1Address feeRecipient = data.randomEth1Address();
+    assertThat(feeRecipient).isNotEqualTo(defaultFeeRecipient);
+
+    manager.updatePreparedProposersFromPrepareBeaconProposer(
+        List.of(new BeaconPreparableProposer(proposerIndex, feeRecipient)), blockSlot);
+
+    assertThat(feeRecipientFor(state, blockSlot)).isEqualTo(defaultFeeRecipient);
+  }
+
   private Eth1Address feeRecipientFor(final BeaconState state, final UInt64 blockSlot) {
     final Bytes32 parentRoot = data.randomBytes32();
     final ForkChoiceUpdateData forkChoiceUpdateData =

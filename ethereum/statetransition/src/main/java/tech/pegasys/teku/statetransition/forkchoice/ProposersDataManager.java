@@ -150,10 +150,20 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
     }
   }
 
-  // pre-Gloas
+  /**
+   * Pre-Gloas. From Gloas onwards signed proposer preferences supersede prepare_beacon_proposer as
+   * the source of fee recipients, so the unsigned ones it carries are ignored rather than cached.
+   */
   public void updatePreparedProposersFromPrepareBeaconProposer(
       final Collection<BeaconPreparableProposer> beaconPreparableProposers,
       final UInt64 currentSlot) {
+    if (spec.areProposerAndBuilderPreferencesRequiredAtEpoch(
+        spec.computeEpochAtSlot(currentSlot))) {
+      LOG.debug(
+          "Ignoring prepare_beacon_proposer at slot {}: superseded by signed proposer preferences",
+          currentSlot);
+      return;
+    }
     final Stream<ValidatorIndexAndFeeRecipient> preparedProposers =
         beaconPreparableProposers.stream()
             .map(
