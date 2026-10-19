@@ -344,7 +344,8 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
     final Optional<Bytes32> dependentRoot =
         getShufflingDependentRoot(currentHeadBlock.blockRoot(), blockSlot);
 
-    final Eth1Address feeRecipient = getFeeRecipient(proposerInfo, blockSlot);
+    final Eth1Address feeRecipient =
+        getFeeRecipient(proposerInfo, blockSlot, proposerIndex, dependentRoot);
     final UInt64 targetGasLimit =
         getTargetGasLimit(blockSlot, proposerIndex, dependentRoot, validatorRegistration);
 
@@ -437,8 +438,24 @@ public class ProposersDataManager implements SlotEventsChannel, ValidatorIsConne
   }
 
   // this function MUST return a fee recipient.
-  private Eth1Address getFeeRecipient(
-      final PreparedProposerInfo preparedProposerInfo, final UInt64 blockSlot) {
+  @VisibleForTesting
+  Eth1Address getFeeRecipient(
+      final PreparedProposerInfo preparedProposerInfo,
+      final UInt64 blockSlot,
+      final UInt64 proposerIndex,
+      final Optional<Bytes32> dependentRoot) {
+    // post-Gloas, we use signed proposer preferences. They are tied to the proposal slot and the
+    // dependent root, so they cannot be overridden by anything cached for the validator index.
+    final Optional<Eth1Address> acceptedFeeRecipient =
+        dependentRoot
+            .flatMap(root -> proposerPreferencesManager.getProposerPreferences(blockSlot, root))
+            .filter(
+                proposerPreferences ->
+                    proposerPreferences.getValidatorIndex().equals(proposerIndex))
+            .map(ProposerPreferences::getFeeRecipient);
+    if (acceptedFeeRecipient.isPresent()) {
+      return acceptedFeeRecipient.get();
+    }
     if (preparedProposerInfo != null) {
       return preparedProposerInfo.getFeeRecipient();
     }
