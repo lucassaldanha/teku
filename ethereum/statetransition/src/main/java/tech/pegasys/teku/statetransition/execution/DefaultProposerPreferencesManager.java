@@ -149,12 +149,14 @@ public class DefaultProposerPreferencesManager
       case SAVE_FOR_FUTURE ->
           pendingProposerPreferences.add(
               new PendingProposerPreferences(signedProposerPreferences, fromNetwork));
-      case REJECT, IGNORE -> {
-        if (!fromNetwork) {
-          pendingLocalSubmissions.remove(signedProposerPreferences);
-        }
+      case REJECT -> {
+        pendingLocalSubmissions.remove(signedProposerPreferences);
         removePendingPreferences(signedProposerPreferences);
       }
+      // a local copy can be ignored as "already seen" while the identical gossip copy is still
+      // being processed, so keep the local submission until that acceptance consumes it or
+      // onSlot cleans it up
+      case IGNORE -> removePendingPreferences(signedProposerPreferences);
     }
   }
 

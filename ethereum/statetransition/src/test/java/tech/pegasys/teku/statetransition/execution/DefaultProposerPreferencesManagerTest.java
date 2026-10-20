@@ -424,6 +424,29 @@ public class DefaultProposerPreferencesManagerTest {
   }
 
   @TestTemplate
+  void shouldReportLocalAcceptanceWhenLocalCopyIsIgnoredBeforeRemoteAcceptanceIsProcessed() {
+    final SignedBeaconBlock dependentBlock = dataStructureUtil.randomSignedBeaconBlock(9);
+    final UInt64 proposalSlot = UInt64.valueOf(10);
+    final SignedProposerPreferences preferences =
+        createSignedProposerPreferences(proposalSlot, dependentBlock.getRoot());
+    final SafeFuture<InternalValidationResult> remoteValidation = new SafeFuture<>();
+    manager.onSlot(proposalSlot.minus(1));
+    when(gossipValidator.validate(preferences))
+        .thenReturn(remoteValidation)
+        .thenReturn(SafeFuture.completedFuture(IGNORE));
+
+    final SafeFuture<InternalValidationResult> remoteResult = manager.addRemote(preferences);
+    // the gossip copy has already been marked as seen by the validator, so our local copy is
+    // ignored before the gossip acceptance has been processed
+    safeJoin(manager.addLocal(preferences));
+    remoteValidation.complete(ACCEPT);
+    safeJoin(remoteResult);
+
+    verify(subscriber).onOperationAdded(preferences, ACCEPT, false);
+    verify(subscriber, never()).onOperationAdded(preferences, ACCEPT, true);
+  }
+
+  @TestTemplate
   void shouldBoundPendingPreferences() {
     final UInt64 proposalSlot = UInt64.valueOf(10);
     final PendingPool<PendingProposerPreferences> boundedPendingPool =
