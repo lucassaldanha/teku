@@ -46,7 +46,7 @@ dependencyManagement {
 		}
 
 		// Waggle prototype: built from the waggle-prototype branch of lucassaldanha/jvm-libp2p and
-		// resolved from the local Maven repository. See docs/waggle-prototype.md.
+		// resolved from the local Maven repository. See docs/waggle/README.md.
 		dependency 'io.libp2p:jvm-libp2p:waggle-prototype'
 		dependency 'tech.pegasys:jblst:0.3.17'
 		dependency 'io.consensys.protocols:jc-kzg-4844:2.1.8'

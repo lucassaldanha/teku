@@ -381,7 +381,7 @@ public class LibP2PNetworkBuilder {
   protected List<ProtocolBinding<?>> getDefaultProtocols(
       final PubKey nodePubKey, final Multiaddr advertisedAddr) {
     final Ping ping = new Ping();
-    final IdentifyOuterClass.Identify identifyMsg =
+    final IdentifyOuterClass.Identify.Builder identifyMsg =
         IdentifyOuterClass.Identify.newBuilder()
             .setProtocolVersion("ipfs/0.1.0")
             .setAgentVersion(VersionProvider.CLIENT_IDENTITY + "/" + VersionProvider.VERSION)
@@ -390,9 +390,13 @@ public class LibP2PNetworkBuilder {
             .setObservedAddr(ByteArrayExtKt.toProtobuf(advertisedAddr.serialize()))
             .addAllProtocols(ping.getProtocolDescriptor().getAnnounceProtocols())
             .addAllProtocols(
-                gossipNetwork.getGossip().getProtocolDescriptor().getAnnounceProtocols())
-            .build();
-    return List.of(ping, new Identify(identifyMsg));
+                gossipNetwork.getGossip().getProtocolDescriptor().getAnnounceProtocols());
+    // go-waggle (Prysm) only opens Waggle streams to peers whose identify lists the protocol.
+    waggleNetwork.ifPresent(
+        waggle ->
+            identifyMsg.addAllProtocols(
+                waggle.getWaggle().getProtocolDescriptor().getAnnounceProtocols()));
+    return List.of(ping, new Identify(identifyMsg.build()));
   }
 
   protected LibP2PGossipNetworkBuilder createLibP2PGossipNetworkBuilder() {

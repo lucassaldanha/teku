@@ -1,0 +1,20 @@
+# Two-node devnet for EIP-8334 (attestations over Waggle): Teku and Prysm, both built from
+# their Waggle branches. Images are local; see README.md next to this file.
+participants:
+  - el_type: geth
+    cl_type: teku
+    cl_image: teku-waggle:local
+    # Fulu at genesis needs one node that custodies every data column.
+    supernode: true
+    cl_extra_params:
+      - "--Xp2p-waggle-attestations-enabled=true"
+  - el_type: geth
+    cl_type: prysm
+    cl_image: prysm-waggle-bn:local
+    vc_image: prysm-waggle-vc:local
+    cl_extra_params:
+      - "--waggle-attestations"
+network_params:
+  preset: mainnet
+  num_validator_keys_per_node: 64
+additional_services: []
