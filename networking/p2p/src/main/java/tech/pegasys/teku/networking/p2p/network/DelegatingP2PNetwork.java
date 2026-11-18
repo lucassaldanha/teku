@@ -27,6 +27,7 @@ import tech.pegasys.teku.networking.p2p.gossip.TopicHandler;
 import tech.pegasys.teku.networking.p2p.gossip.config.GossipTopicsScoringConfig;
 import tech.pegasys.teku.networking.p2p.peer.NodeId;
 import tech.pegasys.teku.networking.p2p.peer.Peer;
+import tech.pegasys.teku.networking.p2p.waggle.WaggleNetwork;
 
 public abstract class DelegatingP2PNetwork<T extends Peer> implements P2PNetwork<T> {
   private final P2PNetwork<?> network;
@@ -133,5 +134,10 @@ public abstract class DelegatingP2PNetwork<T extends Peer> implements P2PNetwork
   @Override
   public Optional<DiscoveryNetwork<?>> getDiscoveryNetwork() {
     return network.getDiscoveryNetwork();
+  }
+
+  @Override
+  public Optional<WaggleNetwork> getWaggleNetwork() {
+    return network.getWaggleNetwork();
   }
 }

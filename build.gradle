@@ -17,6 +17,11 @@ import static tech.pegasys.teku.repackage.Repackage.repackage
 buildscript {
 	repositories {
 		// See the comment on the project repositories below.
+		// Waggle prototype: jvm-libp2p comes from `./gradlew :libp2p:publishToMavenLocal` on the
+		// waggle-prototype branch. Restricted to that one group.
+		mavenLocal {
+			content { includeGroupByRegex('io\\.libp2p($|\\..*)') }
+		}
 		maven {
 			name = 'mavenCentralMirror'
 			url = 'https://maven-central.storage-download.googleapis.com/maven2/'

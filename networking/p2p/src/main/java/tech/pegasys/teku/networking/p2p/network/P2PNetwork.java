@@ -25,6 +25,7 @@ import tech.pegasys.teku.networking.p2p.gossip.GossipNetwork;
 import tech.pegasys.teku.networking.p2p.peer.NodeId;
 import tech.pegasys.teku.networking.p2p.peer.Peer;
 import tech.pegasys.teku.networking.p2p.peer.PeerConnectedSubscriber;
+import tech.pegasys.teku.networking.p2p.waggle.WaggleNetwork;
 
 public interface P2PNetwork<T extends Peer> extends GossipNetwork {
 
@@ -101,6 +102,11 @@ public interface P2PNetwork<T extends Peer> extends GossipNetwork {
   Optional<List<String>> getDiscoveryAddresses();
 
   Optional<DiscoveryNetwork<?>> getDiscoveryNetwork();
+
+  /** The Waggle pubsub protocol, if it is enabled on this network. */
+  default Optional<WaggleNetwork> getWaggleNetwork() {
+    return Optional.empty();
+  }
 
   /**
    * Starts the P2P network layer.

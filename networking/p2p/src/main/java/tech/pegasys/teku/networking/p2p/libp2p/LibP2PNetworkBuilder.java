@@ -32,6 +32,7 @@ import io.libp2p.core.mux.StreamMuxerProtocol;
 import io.libp2p.etc.types.ByteArrayExtKt;
 import io.libp2p.protocol.Identify;
 import io.libp2p.protocol.Ping;
+import io.libp2p.pubsub.waggle.Waggle;
 import io.libp2p.security.noise.NoiseXXSecureChannel;
 import io.libp2p.transport.quic.QuicTransport;
 import io.libp2p.transport.tcp.TcpTransport;
@@ -40,6 +41,7 @@ import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
 import tech.pegasys.teku.infrastructure.io.IPVersionResolver;
@@ -52,6 +54,7 @@ import tech.pegasys.teku.networking.p2p.libp2p.gossip.LibP2PGossipNetwork;
 import tech.pegasys.teku.networking.p2p.libp2p.gossip.LibP2PGossipNetworkBuilder;
 import tech.pegasys.teku.networking.p2p.libp2p.rpc.InboundRpcStreamLimiter;
 import tech.pegasys.teku.networking.p2p.libp2p.rpc.RpcHandler;
+import tech.pegasys.teku.networking.p2p.libp2p.waggle.LibP2PWaggleNetwork;
 import tech.pegasys.teku.networking.p2p.network.P2PNetwork;
 import tech.pegasys.teku.networking.p2p.network.PeerHandler;
 import tech.pegasys.teku.networking.p2p.network.config.DualStackPortBindings;
@@ -90,6 +93,7 @@ public class LibP2PNetworkBuilder {
       new MuxFirewall(REMOTE_OPEN_STREAMS_RATE_LIMIT, REMOTE_PARALLEL_OPEN_STREAMS_COUNT_LIMIT);
 
   protected LibP2PGossipNetwork gossipNetwork;
+  protected Optional<LibP2PWaggleNetwork> waggleNetwork = Optional.empty();
 
   protected Defaults hostBuilderDefaults = Defaults.None;
   protected Host host;
@@ -103,6 +107,9 @@ public class LibP2PNetworkBuilder {
   public P2PNetwork<Peer> build() {
 
     gossipNetwork = createGossipNetwork();
+    if (config.isWaggleEnabled()) {
+      waggleNetwork = Optional.of(new LibP2PWaggleNetwork(new Waggle()));
+    }
     // Setup rpc methods
     rpcHandlers = createRpcHandlers();
     // Setup peers
@@ -128,6 +135,7 @@ public class LibP2PNetworkBuilder {
         peerManager,
         advertisedAddresses,
         gossipNetwork,
+        waggleNetwork,
         listenPorts,
         config.isQuicEnabled());
   }
@@ -348,6 +356,8 @@ public class LibP2PNetworkBuilder {
                   b.getProtocols()
                       .addAll(getDefaultProtocols(privKey.publicKey(), advertisedAddr)));
           b.getProtocols().add(gossipNetwork.getGossip());
+          // Waggle is also a connection handler; the host picks that up from the protocol list.
+          waggleNetwork.ifPresent(waggle -> b.getProtocols().add(waggle.getWaggle()));
           b.getProtocols().addAll(rpcHandlers);
 
           if (config.getWireLogsConfig().isLogWireCipher()) {

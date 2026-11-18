@@ -45,7 +45,9 @@ dependencyManagement {
 			entry 'javalin-rendering-thymeleaf'
 		}
 
-		dependency 'io.libp2p:jvm-libp2p:1.3.7-RELEASE'
+		// Waggle prototype: built from the waggle-prototype branch of lucassaldanha/jvm-libp2p and
+		// resolved from the local Maven repository. See docs/waggle-prototype.md.
+		dependency 'io.libp2p:jvm-libp2p:waggle-prototype'
 		dependency 'tech.pegasys:jblst:0.3.17'
 		dependency 'io.consensys.protocols:jc-kzg-4844:2.1.8'
 		dependency 'io.github.crate-crypto:java-eth-kzg:0.10.0'

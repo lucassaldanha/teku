@@ -42,6 +42,7 @@ import tech.pegasys.teku.networking.p2p.network.PeerAddress;
 import tech.pegasys.teku.networking.p2p.peer.NodeId;
 import tech.pegasys.teku.networking.p2p.peer.Peer;
 import tech.pegasys.teku.networking.p2p.peer.PeerConnectedSubscriber;
+import tech.pegasys.teku.networking.p2p.waggle.WaggleNetwork;
 
 public class LibP2PNetwork implements P2PNetwork<Peer> {
 
@@ -55,6 +56,7 @@ public class LibP2PNetwork implements P2PNetwork<Peer> {
   private final Host host;
   private final PeerManager peerManager;
   private final List<Multiaddr> advertisedAddresses;
+  private final Optional<WaggleNetwork> waggleNetwork;
   private final GossipNetwork gossipNetwork;
   private final List<Integer> listenPorts;
   private final boolean quicEnabled;
@@ -68,8 +70,10 @@ public class LibP2PNetwork implements P2PNetwork<Peer> {
       final PeerManager peerManager,
       final List<Multiaddr> advertisedAddresses,
       final GossipNetwork gossipNetwork,
+      final Optional<? extends WaggleNetwork> waggleNetwork,
       final List<Integer> listenPorts,
       final boolean quicEnabled) {
+    this.waggleNetwork = waggleNetwork.map(WaggleNetwork.class::cast);
     this.privKey = privKey;
     this.nodeId = nodeId;
     this.host = host;
@@ -78,6 +82,11 @@ public class LibP2PNetwork implements P2PNetwork<Peer> {
     this.gossipNetwork = gossipNetwork;
     this.listenPorts = listenPorts;
     this.quicEnabled = quicEnabled;
+  }
+
+  @Override
+  public Optional<WaggleNetwork> getWaggleNetwork() {
+    return waggleNetwork;
   }
 
   @Override

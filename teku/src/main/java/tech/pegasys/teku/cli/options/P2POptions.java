@@ -617,6 +617,17 @@ public class P2POptions {
       fallbackValue = "true")
   private boolean yamuxEnabled = NetworkConfig.DEFAULT_YAMUX_ENABLED;
 
+  @Option(
+      names = {"--Xp2p-waggle-attestations-enabled"},
+      paramLabel = "<BOOLEAN>",
+      showDefaultValue = Visibility.ALWAYS,
+      description =
+          "Prototype: propagates subnet attestations over the Waggle protocol (EIP-8334 draft) next to gossipsub",
+      arity = "0..1",
+      hidden = true,
+      fallbackValue = "true")
+  private boolean waggleAttestationsEnabled = NetworkConfig.DEFAULT_WAGGLE_ENABLED;
+
   // More about flood publishing
   // https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#flood-publishing
   @Option(
@@ -888,6 +899,7 @@ public class P2POptions {
                   .listenQuicPortIpv6(p2pQuicPortIpv6)
                   .advertisedIps(Optional.ofNullable(p2pAdvertisedIps))
                   .yamuxEnabled(yamuxEnabled)
+                  .waggleEnabled(waggleAttestationsEnabled)
                   .quicEnabled(p2pQuicEnabled)
                   .tcpEnabled(p2pTcpEnabled);
             })

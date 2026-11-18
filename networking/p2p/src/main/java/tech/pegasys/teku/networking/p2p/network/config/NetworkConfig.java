@@ -50,6 +50,7 @@ public class NetworkConfig {
   public static final int DEFAULT_P2P_PORT_IPV6 = 9090;
   public static final int DEFAULT_P2P_QUIC_PORT_IPV6 = 9091;
   public static final boolean DEFAULT_YAMUX_ENABLED = false;
+  public static final boolean DEFAULT_WAGGLE_ENABLED = false;
   public static final boolean DEFAULT_STRICT_CONFIG_LOADING_ENABLED = false;
   public static final boolean DEFAULT_QUIC_ENABLED = true;
   public static final boolean DEFAULT_TCP_ENABLED = true;
@@ -69,6 +70,7 @@ public class NetworkConfig {
   private final OptionalInt advertisedPortIpv6;
   private final OptionalInt advertisedQuicPort;
   private final OptionalInt advertisedQuicPortIpv6;
+  private final boolean waggleEnabled;
   private final boolean yamuxEnabled;
   private final boolean quicEnabled;
   private final boolean tcpEnabled;
@@ -90,7 +92,9 @@ public class NetworkConfig {
       final OptionalInt advertisedQuicPortIpv6,
       final boolean yamuxEnabled,
       final boolean quicEnabled,
-      final boolean tcpEnabled) {
+      final boolean tcpEnabled,
+      final boolean waggleEnabled) {
+    this.waggleEnabled = waggleEnabled;
     this.privateKeySource = privateKeySource;
     this.networkInterfaces = networkInterfaces;
     this.advertisedIps = advertisedIps;
@@ -174,6 +178,11 @@ public class NetworkConfig {
 
   public int getAdvertisedQuicPortIpv6() {
     return advertisedQuicPortIpv6.orElse(listenQuicPortIpv6);
+  }
+
+  /** Whether the Waggle pubsub protocol (libp2p/specs#732, draft) runs next to gossipsub. */
+  public boolean isWaggleEnabled() {
+    return waggleEnabled;
   }
 
   public boolean isYamuxEnabled() {
@@ -277,6 +286,7 @@ public class NetworkConfig {
     private OptionalInt advertisedQuicPort = OptionalInt.empty();
     private OptionalInt advertisedQuicPortIpv6 = OptionalInt.empty();
     private boolean yamuxEnabled = DEFAULT_YAMUX_ENABLED;
+    private boolean waggleEnabled = DEFAULT_WAGGLE_ENABLED;
     private boolean quicEnabled = DEFAULT_QUIC_ENABLED;
     private boolean tcpEnabled = DEFAULT_TCP_ENABLED;
 
@@ -310,7 +320,8 @@ public class NetworkConfig {
           advertisedQuicPortIpv6,
           yamuxEnabled,
           quicEnabled,
-          tcpEnabled);
+          tcpEnabled,
+          waggleEnabled);
     }
 
     private Optional<PrivateKeySource> createFileKeySource() {
@@ -446,6 +457,11 @@ public class NetworkConfig {
       advertisedQuicPortIpv6.ifPresent(
           port -> validatePort(port, "--p2p-advertised-quic-port-ipv6"));
       this.advertisedQuicPortIpv6 = advertisedQuicPortIpv6;
+      return this;
+    }
+
+    public Builder waggleEnabled(final boolean waggleEnabled) {
+      this.waggleEnabled = waggleEnabled;
       return this;
     }
 

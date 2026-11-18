@@ -16,11 +16,16 @@ package tech.pegasys.teku.networking.eth2.gossip.forks.versions;
 import com.google.common.base.MoreObjects;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Random;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes32;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import tech.pegasys.teku.infrastructure.async.AsyncRunner;
 import tech.pegasys.teku.infrastructure.async.SafeFuture;
 import tech.pegasys.teku.infrastructure.bytes.Bytes4;
+import tech.pegasys.teku.infrastructure.time.SystemTimeProvider;
 import tech.pegasys.teku.infrastructure.unsigned.UInt64;
 import tech.pegasys.teku.networking.eth2.gossip.AggregateGossipManager;
 import tech.pegasys.teku.networking.eth2.gossip.AttestationGossipManager;
@@ -32,9 +37,12 @@ import tech.pegasys.teku.networking.eth2.gossip.VoluntaryExitGossipManager;
 import tech.pegasys.teku.networking.eth2.gossip.encoding.GossipEncoding;
 import tech.pegasys.teku.networking.eth2.gossip.forks.GossipForkSubscriptions;
 import tech.pegasys.teku.networking.eth2.gossip.subnets.AttestationSubnetSubscriptions;
+import tech.pegasys.teku.networking.eth2.gossip.topics.GossipTopics;
 import tech.pegasys.teku.networking.eth2.gossip.topics.OperationProcessor;
+import tech.pegasys.teku.networking.eth2.gossip.waggle.WaggleAttestationPropagator;
 import tech.pegasys.teku.networking.p2p.discovery.DiscoveryNetwork;
 import tech.pegasys.teku.spec.Spec;
+import tech.pegasys.teku.spec.SpecVersion;
 import tech.pegasys.teku.spec.datastructures.attestation.ValidatableAttestation;
 import tech.pegasys.teku.spec.datastructures.blocks.SignedBeaconBlock;
 import tech.pegasys.teku.spec.datastructures.operations.AttesterSlashing;
@@ -46,6 +54,8 @@ import tech.pegasys.teku.statetransition.util.DebugDataDumper;
 import tech.pegasys.teku.storage.client.RecentChainData;
 
 public class GossipForkSubscriptionsPhase0 implements GossipForkSubscriptions {
+
+  private static final Logger LOG = LogManager.getLogger();
   private final List<GossipManager> gossipManagers = new ArrayList<>();
   private final Fork fork;
   protected final Spec spec;
@@ -131,11 +141,59 @@ public class GossipForkSubscriptionsPhase0 implements GossipForkSubscriptions {
             attestationProcessor,
             forkInfo,
             forkDigest,
-            debugDataDumper);
+            debugDataDumper,
+            createWaggleAttestationPropagator(forkDigest));
 
     attestationGossipManager =
         new AttestationGossipManager(metricsSystem, attestationSubnetSubscriptions);
     addGossipManager(attestationGossipManager);
+  }
+
+  /**
+   * EIP-8334 prototype. Present when Waggle is enabled on the network and this fork's subnet
+   * attestations are SingleAttestations (Electra onwards), which is what the EIP bundles.
+   */
+  private Optional<WaggleAttestationPropagator> createWaggleAttestationPropagator(
+      final Bytes4 forkDigest) {
+    final SpecVersion specVersion = spec.atEpoch(getActivationEpoch());
+    return discoveryNetwork
+        .getWaggleNetwork()
+        .flatMap(
+            waggleNetwork ->
+                specVersion
+                    .getSchemaDefinitions()
+                    .toVersionElectra()
+                    .map(
+                        schemaDefinitions ->
+                            new WaggleAttestationPropagator(
+                                asyncRunner,
+                                SystemTimeProvider.SYSTEM_TIME_PROVIDER,
+                                metricsSystem,
+                                waggleNetwork,
+                                recentChainData::getCurrentSlot,
+                                schemaDefinitions.getSingleAttestationSchema(),
+                                specVersion.getConfig().getMaxValidatorsPerCommittee(),
+                                subnetId ->
+                                    GossipTopics.getAttestationSubnetTopic(
+                                        forkDigest, subnetId, gossipEncoding),
+                                (subnetId, attestation) ->
+                                    attestationProcessor.process(
+                                        ValidatableAttestation.fromNetwork(
+                                            spec, attestation, subnetId),
+                                        Optional.empty()),
+                                (subnetId, attestation) ->
+                                    discoveryNetwork
+                                        .gossip(
+                                            GossipTopics.getAttestationSubnetTopic(
+                                                forkDigest, subnetId, gossipEncoding),
+                                            gossipEncoding.encode(attestation))
+                                        .finish(
+                                            error ->
+                                                LOG.debug(
+                                                    "Failed to publish an attestation from Waggle on gossipsub",
+                                                    error)),
+                                WaggleAttestationPropagator.Config.DEFAULT,
+                                new Random())));
   }
 
   void addBlockGossipManager(final ForkInfo forkInfo, final Bytes4 forkDigest) {
